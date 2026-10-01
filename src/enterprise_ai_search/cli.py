@@ -7,6 +7,7 @@ from urllib.error import URLError
 
 from enterprise_ai_search.bm25 import BM25Index
 from enterprise_ai_search.dataset import download_scifact, load_corpus
+from enterprise_ai_search.evaluation import evaluate_scifact
 from enterprise_ai_search.text import ChunkingConfig, chunk_documents
 
 logger = logging.getLogger(__name__)
@@ -18,6 +19,9 @@ def main() -> None:
     commands = parser.add_subparsers(dest="command", required=True)
     download = commands.add_parser("download", help="Download pinned SciFact files")
     download.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
+    evaluate = commands.add_parser("evaluate", help="Evaluate the unchanged BM25 baseline on SciFact test")
+    evaluate.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
+    evaluate.add_argument("--output", type=Path, default=Path("results/scifact_bm25_test.json"))
     search = commands.add_parser("search", help="Search the local SciFact corpus")
     search.add_argument("query")
     search.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
@@ -30,6 +34,18 @@ def main() -> None:
     try:
         if args.command == "download":
             download_scifact(args.data_dir)
+            return
+        if args.command == "evaluate":
+            report = evaluate_scifact(args.data_dir)
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+            print(f"SciFact test: {report['counts']['evaluated_queries']} queries")
+            for name, value in report["metrics"].items():
+                print(f"{name}: {value:.6f}")
+            timing = report["performance"]
+            print(f"Total evaluation: {timing['total_evaluation_seconds']:.3f} s")
+            print(f"Average query: {timing['average_query_seconds'] * 1000:.3f} ms")
+            print(f"Saved: {args.output}")
             return
         config = ChunkingConfig(args.chunk_size, args.overlap)
         if args.top_k <= 0:

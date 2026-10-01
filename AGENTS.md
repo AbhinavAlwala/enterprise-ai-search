@@ -30,4 +30,4 @@
 - `docs/DESIGN_DECISIONS.md`: choices, rationale, alternatives, and trade-offs.
 - `docs/INTERVIEW_PREP.md`: questions and answers grounded only in implemented features.
 
-The implemented scope is Milestone 1: SciFact ingestion, normalization, deterministic chunking, BM25 lexical retrieval, and a local CLI. Do not add dense retrieval, evaluation, or other future features without a requested milestone. Unit tests must use local fixtures and avoid network access. Keep downloaded data out of Git.
+The implemented scope includes SciFact ingestion, normalization, deterministic chunking, BM25 lexical retrieval, a local CLI, and document-level test-split evaluation. Milestone 2 measures the original Milestone 1 defaults without tuning. Preserve that baseline; changes to retrieval settings require a separately requested milestone. Keep generated evaluation JSON small and reproducible, and report quality separately from latency. Unit tests must use local fixtures and avoid network access. Keep downloaded data and caches out of Git. Do not begin future features without a requested milestone.

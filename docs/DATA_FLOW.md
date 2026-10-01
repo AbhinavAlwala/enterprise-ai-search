@@ -9,4 +9,16 @@
 
 Chunk size counts whitespace words; BM25 length counts tokenizer output. They are deliberately different units. The final window stops when it reaches the document end, so no redundant overlap-only tail is emitted. Windows with no searchable tokens are omitted.
 
-Query files and qrels remain local for a later evaluation milestone. Current queries come directly from CLI input, and no relevance judgments influence ranking.
+Search queries come directly from CLI input; relevance judgments never influence ranking.
+
+## Evaluation flow
+
+1. `evaluate_scifact` loads the same corpus plus `queries.jsonl.gz` and the inspected `qrels/test.tsv`. The query file includes both train and test queries; only IDs in test qrels are evaluated, in sorted ID order.
+2. The qrels loader validates the TSV header, nonnegative integer grades, unique query/document pairs, and at least one positive judgment per judged query. Evaluation also checks that referenced query/document IDs exist. It does not silently drop inconsistent rows or unanswered queries.
+3. Evaluation calls the unchanged `ChunkingConfig()`, `chunk_documents`, and `BM25Index` defaults and builds the index once. Every test query is searched with a candidate limit equal to the index's entire chunk count, so every positive-score match is available.
+4. `ranked_document_ids` walks chunk results in their existing order, skipping already-seen parents, until it has ten unique documents or exhausts matches. Chunk ranks 1, 2, 3 for parents A, A, B become document ranks 1, 2 for A, B. It does not sum chunk scores or rerank documents.
+5. Each document ranking is compared with that query's provided qrels. Missing/unjudged documents have gain zero. Per-query Recall@5, Recall@10, reciprocal rank@10, and nDCG@10 are computed, including zero-score queries.
+6. Each metric is averaged equally across all evaluated queries. This macro mean is distinct from pooling retrieved/relevant counts across queries.
+7. The CLI writes `results/scifact_bm25_test.json` and prints a concise summary. The JSON contains settings, counts, input/source SHA-256 values, environment, aggregate metrics, top document IDs and metrics per query, and timings. No document bodies or query text are copied into the report.
+
+Per-query latency measures search plus deduplication with an already-built index. Total evaluation time includes loading, validation, index construction, retrieval, metrics, and report assembly, but excludes JSON serialization/writing and terminal output. Timestamps/timings vary between runs; unchanged inputs/code produce deterministic rankings and quality metrics.

@@ -1,3 +1,4 @@
+import csv
 import gzip
 import hashlib
 import json
@@ -83,3 +84,37 @@ def load_corpus(path: Path) -> list[Document]:
             seen_ids.add(document_id)
             documents.append(Document(document_id, text, title))
     return documents
+
+
+def load_queries(path: Path) -> dict[str, str]:
+    # BEIR query JSONL shares the corpus loader's ID/text schema and validation.
+    return {record.document_id: record.text for record in load_corpus(path)}
+
+
+def load_qrels(path: Path) -> dict[str, dict[str, int]]:
+    judgments: dict[str, dict[str, int]] = {}
+    with path.open(encoding="utf-8", newline="") as stream:
+        reader = csv.reader(stream, delimiter="\t")
+        if next(reader, None) != ["query-id", "corpus-id", "score"]:
+            raise ValueError(f"{path}: expected query-id, corpus-id, score TSV header")
+        for line_number, row in enumerate(reader, start=2):
+            try:
+                if len(row) != 3:
+                    raise ValueError("Expected three fields")
+                query_id, document_id, raw_grade = row
+                if not query_id.strip() or not document_id.strip():
+                    raise ValueError("Query and document IDs must be nonempty")
+                grade = int(raw_grade)
+                if grade < 0:
+                    raise ValueError("Relevance grades must be nonnegative integers")
+                query_judgments = judgments.setdefault(query_id, {})
+                if document_id in query_judgments:
+                    raise ValueError("Duplicate query/document judgment")
+                query_judgments[document_id] = grade
+            except ValueError as error:
+                raise ValueError(f"{path}:{line_number}: {error}") from error
+    if not judgments:
+        raise ValueError(f"{path}: no relevance judgments")
+    if any(not any(grade > 0 for grade in grades.values()) for grades in judgments.values()):
+        raise ValueError(f"{path}: every judged query must have a positive relevance grade")
+    return judgments
