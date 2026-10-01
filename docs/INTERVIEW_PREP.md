@@ -2,7 +2,7 @@
 
 **What is information retrieval, and what is implemented here?**
 
-Information retrieval selects and ranks stored content for a user's information need expressed as a query. Here a local CLI ranks SciFact chunks using lexical BM25. It does not generate answers or verify claims.
+Information retrieval selects and ranks stored content for a user's information need expressed as a query. Here a local CLI ranks SciFact chunks using lexical BM25 or dense cosine similarity. It does not generate answers or verify claims.
 
 **How does a document differ from a chunk? Why chunk?**
 
@@ -63,3 +63,31 @@ No-hit queries receive zero, not exclusion. Multiple positives all contribute to
 **What limits the conclusions? Why not tune now?**
 
 Unjudged documents are treated as nonrelevant, so incomplete judgments can penalize useful results. This small scientific abstract dataset differs from enterprise documents. Full candidate scans are practical here but not scalable. Timing is one local run. Tuning against the test measurements would contaminate an honest baseline; a separately designed experiment should use a suitable development split.
+
+**What is an embedding, and why can similar text have nearby vectors?**
+
+An embedding is a fixed-length numerical representation. MiniLM maps text into 384 coordinates. Contrastive training brings related examples closer and pushes unrelated examples apart, so vector direction can capture relationships beyond shared words. This learned similarity is imperfect and does not prove factual agreement.
+
+**How does dense search differ from BM25 here?**
+
+BM25 explicitly scores shared token frequency, rarity, and length. Dense search encodes both query and chunk with one trained model, then ranks vector similarities. It can retrieve paraphrases without identical words but may blur precise scientific terms or negation. Both methods return the same chunk records and use the same document-level evaluation.
+
+**What is cosine similarity? Why normalize?**
+
+Cosine is `dot(a, b) / (norm(a) * norm(b))`: it compares angle/direction. Dividing vectors by their L2 norms makes the dot product equal cosine and prevents magnitude from dominating. Zero vectors have no defined direction and are rejected. Scores are not probabilities; floating-point rounding can slightly exceed mathematical bounds.
+
+**What happens offline versus online? Why cache?**
+
+Offline work loads the model and batch-encodes all chunks once. Online work encodes one query and compares it against cached chunk vectors. Repeating thousands of document encodings for every query would waste CPU time. The cache must match the model revision, ordered chunks, preprocessing configuration, and encoding settings; the code also checks vector integrity.
+
+**Why use exact search instead of ANN?**
+
+The corpus fits in a small matrix, so scanning every row is understandable and avoids approximation loss. ANN searches a reduced candidate space to improve speed at scale, at the cost of possible missed neighbors and additional index/configuration complexity. This milestone uses no ANN library.
+
+**What limits the BM25-versus-dense conclusions?**
+
+Model truncation may drop chunk tails. The embedding model is general-purpose and not tuned on this test set. Qrels may be incomplete, and document-level evaluation does not prove the selected passage contains evidence. Online timings exclude setup, while model loading/corpus encoding are reported separately. Read the generated comparison for this dataset's actual improvements/regressions; examples cannot establish universal superiority.
+
+**What did this actual comparison show?**
+
+Dense improved recall at both cutoffs, while BM25 retained higher MRR and nDCG. This means finding more relevant documents within ten did not imply placing the first/all relevant documents earlier. Query 1 is a measured dense-only top-ten hit; query 70 is a BM25-only hit. The exact query text, document ranks, and metric differences come from the generated comparison artifact. This is evidence about this fixed experiment, not a reason to tune on test judgments.

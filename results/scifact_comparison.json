@@ -1,0 +1,108 @@
+{
+  "dataset": "BEIR SciFact",
+  "split": "test",
+  "evaluated_queries": 300,
+  "artifact_sha256": {
+    "bm25": "54c9fe04580db80d5dce11559ac68fffd6225353490ccdce4a5c268df189c1ca",
+    "dense": "3b08270b868918c99fc021d1fcf9831f522515af78e203ea5db74b3e1c17f4e9"
+  },
+  "metrics": {
+    "Recall@5": {
+      "bm25": 0.7092777777777778,
+      "dense": 0.7311111111111112,
+      "dense_minus_bm25": 0.02183333333333337
+    },
+    "Recall@10": {
+      "bm25": 0.7746666666666667,
+      "dense": 0.8062222222222223,
+      "dense_minus_bm25": 0.03155555555555556
+    },
+    "MRR@10": {
+      "bm25": 0.6215357142857143,
+      "dense": 0.5978783068783069,
+      "dense_minus_bm25": -0.023657407407407405
+    },
+    "nDCG@10": {
+      "bm25": 0.6535477437905298,
+      "dense": 0.6452938732165673,
+      "dense_minus_bm25": -0.00825387057396254
+    }
+  },
+  "query_latency_ms": {
+    "bm25": 36.971870999938496,
+    "dense": 34.207300328028694
+  },
+  "timing_caveat": "Separate sequential local runs; BM25 runtime predates ML dependencies; dense includes query encoding; neither includes index setup.",
+  "example_selection": "First numeric query ID in each direction with a top-10 relevant hit versus no hit",
+  "examples": [
+    {
+      "query_id": "1",
+      "query": "0-dimensional biomaterials show inductive properties.",
+      "winner": "dense",
+      "loser": "bm25",
+      "relevant_document_ids": [
+        "31715818"
+      ],
+      "bm25_document_ids": [
+        "43385013",
+        "10931595",
+        "10608397",
+        "40212412",
+        "24998637",
+        "10906636",
+        "24660385",
+        "27049238",
+        "803312",
+        "12824568"
+      ],
+      "dense_document_ids": [
+        "29638116",
+        "4346436",
+        "3874000",
+        "10786948",
+        "31715818",
+        "17388232",
+        "86129154",
+        "25404036",
+        "2060137",
+        "927561"
+      ],
+      "first_relevant_rank": 5
+    },
+    {
+      "query_id": "70",
+      "query": "Activation of PPM1D suppresses p53 function.",
+      "winner": "bm25",
+      "loser": "dense",
+      "relevant_document_ids": [
+        "4414547",
+        "5956380"
+      ],
+      "bm25_document_ids": [
+        "5956380",
+        "4414547",
+        "24721866",
+        "23985464",
+        "21307488",
+        "5254463",
+        "7225911",
+        "43880096",
+        "52095986",
+        "7465900"
+      ],
+      "dense_document_ids": [
+        "9483851",
+        "43880096",
+        "27949347",
+        "11903247",
+        "6896063",
+        "9169645",
+        "28107602",
+        "31624828",
+        "6670101",
+        "21557055"
+      ],
+      "first_relevant_rank": 1
+    }
+  ]
+}

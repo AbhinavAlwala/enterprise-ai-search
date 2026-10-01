@@ -21,3 +21,18 @@
 The real-corpus smoke query is in README. `uv build --offline --cache-dir .uv-cache` works after build dependencies are cached and produces source/wheel artifacts under `dist/`. No formatter or linter is configured.
 
 Understand the distribution name (`enterprise-ai-search`) versus import name (`enterprise_ai_search`), and why tests exercise installed source through the src layout.
+
+## Dense implementation
+
+- `dense.EmbeddingConfig`: one model/revision, dimension, batch size, maximum sequence length, and CPU thread count in one place.
+- `load_encoder`: lazy model/runtime imports and CPU-only construction. BM25 commands do not load a transformer.
+- `normalize_vectors`: validates a finite 2D matrix and divides every row by its L2 norm. Zero rows are rejected because their direction is undefined.
+- `cache_identity`, `read_embedding_cache`, and `write_embedding_cache`: fingerprint ordered chunk content/configuration, validate metadata/shape/norms/checksum, and atomically replace the NPZ. Loading uses `allow_pickle=False`.
+- `prepare_embeddings`: reuse a validated cache or audit token lengths, encode batches, normalize, and save. It returns vectors plus measured cache/encoding information.
+- `DenseIndex.search`: encode a single query, compute `embeddings @ query_vector`, lexicographically sort by negative score then chunk ID, and return ranked chunks.
+- `dense_evaluation.evaluate_dense_scifact`: prepare the model/index once, retrieve each test query, and call existing `ranked_document_ids`, recall, reciprocal-rank, and nDCG functions. No retriever interface or factory is introduced.
+- `comparison.compare_reports`: validate two artifacts, subtract their measured metrics, and select two opposing hit/miss examples when available. It does not run retrieval or choose a model.
+
+Dense CLI commands are `prepare-dense`, `search-dense`, and `evaluate-dense`; `compare` uses saved reports. `--cache-dir` changes the local dense cache, and `--rebuild` regenerates vectors. After the first model download, setting `HF_HUB_OFFLINE=1` prevents Hub checks for cached model files. `uv --offline` controls package access separately.
+
+`tests/test_dense.py` uses tiny vectors and fake encoders to check shapes, zero/nonfinite vectors, cosine order, ties, top-k, stale/corrupt caches, and truncation auditing. `tests/test_dense_evaluation.py` checks complete integration with existing metrics, cache reuse, artifact comparison, and BM25 report overwrite protection. Neither test file downloads a model.

@@ -71,3 +71,29 @@ Quality and latency answer different questions. Recall/MRR/nDCG measure agreemen
 ## Verification scope
 
 pytest remains the only direct development dependency. Offline fixture tests validate metric logic and failure cases. The full real-corpus evaluation measures this baseline against provided test judgments, but does not establish scientific correctness or production performance. No environment template, server, or future-feature modules are needed.
+
+## One small dense baseline
+
+Use [sentence-transformers/all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2), revision `1110a243fdf4706b3f48f1d95db1a4f5529b4d41`. It is an Apache-2.0 English sentence/short-paragraph encoder with 384 dimensions, approximately 91 MB of weights, and a documented 256-wordpiece truncation limit. Both passages and queries use plain text with an empty prefix. No model sweep or tuning is performed.
+
+sentence-transformers handles tokenizer, transformer inference, and pooling. NumPy handles normalized vectors and exact ranking; PyTorch provides the inference runtime. CPU-only wheels are selected explicitly for Windows/Linux through uv; macOS uses PyPI's supported wheel. The locked sentence-transformers 5.1 series uses Transformers 4.x. No training extras, API keys, ANN libraries, or vector database are needed. CPU batches of 32 and four Torch threads are operational choices, not quality tuning.
+
+The same chunks are preserved for a fair comparison, although the model may truncate them after 256 wordpieces. Whitespace words and wordpieces are different units. We count truncated chunks and disclose this limitation rather than alter the frozen corpus preprocessing. The model's pretraining is external; dataset overlap cannot be ruled out, and these measurements do not establish contamination-free generalization.
+
+## Cache identity and exact cosine search
+
+Save float32 unit vectors and JSON metadata together in one ignored NPZ file. Identity includes model/revision, sequence limit, prompts, batch/thread settings, ordered chunk IDs/parents/text, chunk configuration, and relevant package versions. Shape, dtype, finite unit norms, and vector-byte checksum are checked before reuse. Rebuild stale/corrupt artifacts without using them; atomic replacement preserves an existing file if encoding fails. Changing code that alters encoding semantics should also change the cache schema/settings identity.
+
+A full matrix-vector dot product scans every chunk. With unit vectors this equals cosine, which compares direction rather than magnitude. Sort all scores with chunk-ID tie-breaking. Exact search is simple and complete for this corpus; ANN would trade accuracy for speed at larger scale and is unnecessary here. Dense ranking includes zero/negative similarities without a tuned threshold. Similarity is neither calibrated relevance probability nor factual confidence.
+
+## Compare artifacts, disclose costs
+
+Keep `results/scifact_bm25_test.json` frozen. Dense evaluation reuses its test data, chunking, document deduplication, metric definitions, and macro averaging. The comparison checks matching inputs and policies and computes metric differences from JSON; no quality metrics are hand-maintained in README. Its two examples use a fixed numeric-ID selection rule at cutoff 10 and are illustrative, not a second benchmark.
+
+Report corpus encoding once and cache/index preparation separately from online query latency, which includes query encoding. A warm cache still requires model loading and validation. BM25's preserved latency and dense latency come from separate local runs with different numerical/runtime stacks, so their ratio is descriptive rather than a controlled hardware benchmark. No method is assumed to be universally better; measured results are linked from README after the full evaluation completes.
+
+## Measured Milestone 3 trade-offs
+
+The [generated comparison](../results/scifact_comparison.json) shows higher dense Recall@5/10 but lower MRR@10 and nDCG@10. Dense finds more judged documents within the cutoffs while its early ranking is weaker on average. Its measured online latency is slightly lower in these separate runs, at the expense of model loading and substantial one-time corpus encoding. The [dense report](../results/scifact_dense_test.json) records these costs and the token-limit audit: 3,478 of 8,778 chunks are truncated. No settings were changed in response to the result.
+
+The fixed example rule selects query 1, where dense retrieves relevant document `31715818` at rank 5 and BM25 misses it in the top ten, and query 70, where BM25 retrieves relevant documents `5956380` and `4414547` at ranks 1 and 2 while dense misses both in the top ten. These illustrate differing failures without establishing their causes or universal superiority.
