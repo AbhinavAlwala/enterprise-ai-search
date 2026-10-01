@@ -17,6 +17,8 @@ DEFAULT_DATA_DIR = Path("data/scifact")
 def _check_report_output(output: Path) -> None:
     if output.resolve() in (
         Path("results/scifact_bm25_test.json").resolve(), Path("results/scifact_dense_test.json").resolve(),
+        Path("results/scifact_hybrid_test.json").resolve(), Path("results/scifact_comparison.json").resolve(),
+        Path("results/scifact_hybrid_comparison.json").resolve(),
     ):
         raise ValueError("Output must not overwrite a frozen baseline report")
 
@@ -69,11 +71,15 @@ def _run_comparison(args: argparse.Namespace) -> None:
     inputs = [args.bm25.resolve(), args.dense.resolve()]
     if args.hybrid is not None:
         inputs.append(args.hybrid.resolve())
+    if args.reranked is not None:
+        inputs.append(args.reranked.resolve())
     if args.output.resolve() in inputs:
         raise ValueError("Comparison output must not overwrite its input reports")
-    report = compare_reports(args.bm25, args.dense, args.data_dir, args.hybrid)
+    report = compare_reports(args.bm25, args.dense, args.data_dir, args.hybrid, args.reranked)
     _save_report(args.output, report)
     methods = ["bm25", "dense"] + (["hybrid"] if args.hybrid is not None else [])
+    if args.reranked is not None:
+        methods.append("reranked")
     print("Metric          " + "".join(f"{method:>12}" for method in methods))
     for name, values in report["metrics"].items():
         print(f"{name:16}" + "".join(f"{values[method]:12.6f}" for method in methods))
@@ -109,8 +115,44 @@ def _run_hybrid(args: argparse.Namespace) -> None:
     print(json.dumps([asdict(result) for result in results], indent=2))
 
 
+def _run_reranked(args: argparse.Namespace) -> None:
+    if args.command == "evaluate-reranked":
+        from enterprise_ai_search.reranked_evaluation import evaluate_reranked_scifact
+
+        _check_report_output(args.output)
+        report = evaluate_reranked_scifact(args.data_dir, args.cache_dir, args.model_cache_dir)
+        _save_report(args.output, report)
+        print(f"SciFact reranked test: {report['counts']['evaluated_queries']} queries")
+        print(f"Hybrid candidate Recall@50: {report['candidate_metrics']['Recall@50']:.6f}")
+        for name, value in report["metrics"].items():
+            print(f"{name}: {value:.6f}")
+        print(f"Reranker model loading: {report['preparation']['reranker_model_load_seconds']:.3f} s")
+        for key in ("average_candidate_generation_seconds", "average_reranker_inference_seconds", "average_query_seconds"):
+            print(f"{key}: {report['performance'][key] * 1000:.3f} ms")
+        print(f"Saved: {args.output}")
+        return
+    from enterprise_ai_search.reranker import CANDIDATE_DEPTH, RerankerConfig, load_reranker, rerank_candidates
+
+    if args.command == "search-reranked" and args.top_k <= 0:
+        raise ValueError("top_k must be positive")
+    model, seconds = load_reranker(args.model_cache_dir)
+    if args.command == "prepare-reranker":
+        config = RerankerConfig()
+        print(f"Prepared {config.model}, revision {config.revision}; model loading {seconds:.3f} s")
+        return
+    from enterprise_ai_search.dense import DenseIndex, load_encoder, prepare_embeddings
+    from enterprise_ai_search.hybrid import HybridIndex
+
+    chunks = chunk_documents(load_corpus(args.data_dir / "corpus.jsonl.gz"))
+    encoder, _ = load_encoder(args.cache_dir / "models")
+    vectors, _ = prepare_embeddings(chunks, encoder, args.cache_dir / "chunks.npz")
+    candidates = HybridIndex(BM25Index(chunks), DenseIndex(chunks, vectors, encoder)).search(args.query, CANDIDATE_DEPTH)
+    results, _ = rerank_candidates(args.query, candidates, model, args.top_k)
+    print(json.dumps([asdict(result) for result in results], indent=2))
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="SciFact lexical and dense retrieval")
+    parser = argparse.ArgumentParser(description="SciFact lexical, dense, hybrid, and reranked retrieval")
     commands = parser.add_subparsers(dest="command", required=True)
     download = commands.add_parser("download", help="Download pinned SciFact files")
     download.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
@@ -138,6 +180,7 @@ def main() -> None:
     compare.add_argument("--bm25", type=Path, default=Path("results/scifact_bm25_test.json"))
     compare.add_argument("--dense", type=Path, default=Path("results/scifact_dense_test.json"))
     compare.add_argument("--hybrid", type=Path, help="Include a third hybrid report")
+    compare.add_argument("--reranked", type=Path, help="Include a fourth reranked report; requires --hybrid")
     compare.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     compare.add_argument("--output", type=Path, default=Path("results/scifact_comparison.json"))
     for name in ("search-hybrid", "evaluate-hybrid"):
@@ -149,9 +192,23 @@ def main() -> None:
             command.add_argument("--top-k", type=int, default=5)
         else:
             command.add_argument("--output", type=Path, default=Path("results/scifact_hybrid_test.json"))
+    for name in ("prepare-reranker", "search-reranked", "evaluate-reranked"):
+        command = commands.add_parser(name, help=name.replace("-", " "))
+        command.add_argument("--model-cache-dir", type=Path, default=Path("data/reranker/models"))
+        if name != "prepare-reranker":
+            command.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
+            command.add_argument("--cache-dir", type=Path, default=Path("data/dense"))
+        if name == "search-reranked":
+            command.add_argument("query")
+            command.add_argument("--top-k", type=int, default=5)
+        if name == "evaluate-reranked":
+            command.add_argument("--output", type=Path, default=Path("results/scifact_reranked_test.json"))
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     try:
+        if args.command in ("prepare-reranker", "search-reranked", "evaluate-reranked"):
+            _run_reranked(args)
+            return
         if args.command == "download":
             download_scifact(args.data_dir)
             return

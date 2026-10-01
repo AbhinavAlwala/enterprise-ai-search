@@ -1,0 +1,164 @@
+{
+  "dataset": "BEIR SciFact",
+  "split": "test",
+  "evaluated_queries": 300,
+  "artifact_sha256": {
+    "bm25": "54c9fe04580db80d5dce11559ac68fffd6225353490ccdce4a5c268df189c1ca",
+    "dense": "3b08270b868918c99fc021d1fcf9831f522515af78e203ea5db74b3e1c17f4e9",
+    "hybrid": "dc1b82e1c0b5c08935f35373bc8b90b04072627dee6fe2eab32a9920e2418365",
+    "reranked": "3ce0263ebc79fcba244469a5013d1b2867d75c963b77819d3d7a164767fb5cf5"
+  },
+  "metrics": {
+    "Recall@5": {
+      "bm25": 0.7092777777777778,
+      "dense": 0.7311111111111112,
+      "hybrid": 0.7551666666666667,
+      "reranked": 0.7666666666666667,
+      "reranked_minus_hybrid": 0.011500000000000066
+    },
+    "Recall@10": {
+      "bm25": 0.7746666666666667,
+      "dense": 0.8062222222222223,
+      "hybrid": 0.8078888888888889,
+      "reranked": 0.8377222222222223,
+      "reranked_minus_hybrid": 0.02983333333333338
+    },
+    "MRR@10": {
+      "bm25": 0.6215357142857143,
+      "dense": 0.5978783068783069,
+      "hybrid": 0.6430396825396826,
+      "reranked": 0.675521164021164,
+      "reranked_minus_hybrid": 0.032481481481481445
+    },
+    "nDCG@10": {
+      "bm25": 0.6535477437905298,
+      "dense": 0.6452938732165673,
+      "hybrid": 0.6802616197895336,
+      "reranked": 0.7087302796441354,
+      "reranked_minus_hybrid": 0.028468659854601785
+    }
+  },
+  "candidate_recall_at_50": 0.9329999999999999,
+  "query_latency_ms": {
+    "bm25": 36.971870999938496,
+    "dense": 34.207300328028694,
+    "hybrid": 93.15474900261809,
+    "reranked": 3378.5766010017446
+  },
+  "reranked_timing_ms": {
+    "average_candidate_generation_seconds": 105.69810066449767,
+    "average_reranker_inference_seconds": 3272.4309896631166,
+    "average_reranking_seconds": 3272.876300662756
+  },
+  "reranker_settings": {
+    "chunking": {
+      "size": 180,
+      "overlap": 30
+    },
+    "bm25": {
+      "k1": 1.2,
+      "b": 0.75
+    },
+    "embedding": {
+      "model": "sentence-transformers/all-MiniLM-L6-v2",
+      "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+      "dimension": 384,
+      "max_sequence_length": 256,
+      "batch_size": 32,
+      "cpu_threads": 4
+    },
+    "document_cutoff": 10,
+    "candidate_depth_documents_per_retriever": 100,
+    "rrf_k": 60,
+    "retriever_weights": {
+      "bm25": 1,
+      "dense": 1
+    },
+    "reranker": {
+      "model": "cross-encoder/ms-marco-MiniLM-L6-v2",
+      "revision": "233902d25c440f23af6f7d6e94d2946bac0bee0a",
+      "max_sequence_length": 512,
+      "batch_size": 16,
+      "cpu_threads": 4
+    },
+    "reranker_candidate_depth": 50,
+    "passage_deduplication": "chunk ID within each document",
+    "passage_selection": "maximum raw cross-encoder score over existing representative passages",
+    "passage_tie_breaking": "ascending chunk ID",
+    "tie_breaking": "ascending document ID",
+    "score_activation": "identity (raw logits); no combination with retrieval scores",
+    "pair_truncation": "longest_first to 512 tokens including query, passage, and special tokens",
+    "aggregation": "macro mean over every test-qrels query",
+    "relevant_grade_threshold": "> 0",
+    "ndcg_gain": "raw relevance grade",
+    "ndcg_discount": "1 / log2(rank + 1)",
+    "unjudged_documents": "zero gain"
+  },
+  "timing_caveat": "Separate local runs, not a controlled hardware benchmark. Online reranked latency includes hybrid candidates, pair preparation/inference, and final ranking; model loading/corpus preparation are excluded.",
+  "example_selection": "First numeric query ID per category; relevant-document movements of at least 5 ranks with a top-10 endpoint; missing judged document from candidate pool",
+  "examples": [
+    {
+      "category": "relevant_absent_from_candidates",
+      "query_id": "13",
+      "query": "5% of perinatal mortality is due to low birth weight.",
+      "document_id": "1606628",
+      "hybrid_candidate_rank": null,
+      "reranked_rank": null,
+      "candidate_recall_at_50": 0.0,
+      "reranked_top_10": [
+        "1263446",
+        "7662395",
+        "33740844",
+        "25182647",
+        "17450673",
+        "8842332",
+        "37480103",
+        "26611834",
+        "30786800",
+        "12770738"
+      ]
+    },
+    {
+      "category": "relevant_downward",
+      "query_id": "70",
+      "query": "Activation of PPM1D suppresses p53 function.",
+      "document_id": "4414547",
+      "hybrid_candidate_rank": 2,
+      "reranked_rank": 10,
+      "candidate_recall_at_50": 1.0,
+      "reranked_top_10": [
+        "21307488",
+        "6896063",
+        "21557055",
+        "31624828",
+        "24721866",
+        "21521236",
+        "11903247",
+        "42489926",
+        "9483851",
+        "4414547"
+      ]
+    },
+    {
+      "category": "relevant_upward",
+      "query_id": "128",
+      "query": "Arterioles have a larger lumen diameter than venules.",
+      "document_id": "8290953",
+      "hybrid_candidate_rank": 9,
+      "reranked_rank": 1,
+      "candidate_recall_at_50": 1.0,
+      "reranked_top_10": [
+        "8290953",
+        "23513718",
+        "79447",
+        "1905095",
+        "4890578",
+        "1122279",
+        "2665425",
+        "13445579",
+        "12549585",
+        "31154082"
+      ]
+    }
+  ]
+}

@@ -117,3 +117,27 @@ The union has at most 200 documents; RRF returns final top-k. Complete retrieval
 The [three-way comparison](../results/scifact_hybrid_comparison.json) reports higher hybrid Recall@5/10, MRR@10, and nDCG@10 than both frozen baselines on these 300 queries, with higher average online latency. Recall@10's gain over dense is modest. The model and embedding cache were reused; online hybrid work includes sequential BM25, query encoding/dense scanning, document extraction, and RRF. Setup is separate. These local runs are not a controlled hardware benchmark.
 
 Example selection is automatic: first numeric query ID per category, with no ranking changes. Query 70 has a hybrid top-ten hit despite dense missing; query 75 moves the first relevant hit from BM25 rank 2/dense rank 3 to hybrid rank 1; query 1 loses dense's rank-5 hit in hybrid's top ten. Agreement can outweigh a valuable single-retriever match, so better averages do not mean improvement for every query. Input/source hashes and compatibility checks preserve provenance. No baseline settings or test-set parameters were changed.
+
+## One cross-encoder after fixed candidate generation
+
+Use [cross-encoder/ms-marco-MiniLM-L6-v2](https://huggingface.co/cross-encoder/ms-marco-MiniLM-L6-v2), revision `233902d25c440f23af6f7d6e94d2946bac0bee0a`: six layers, roughly 22.7 million parameters and 90.9 MB of safetensors weights. The published repository name omits the extra hyphen before 6 in the requested spelling. It is a passage-ranking model trained on MS MARCO, not tuned here for SciFact. Existing sentence-transformers provides the API; dependencies/lockfile remain unchanged.
+
+A bi-encoder processes query/passages independently, enabling cached passage vectors. A cross-encoder processes each pair jointly so tokens can interact across query and passage; this richer signal requires a transformer inference for every pair. Rerank only the first 50 unchanged hybrid documents, as fixed in the milestone request before evaluation. Scoring the corpus would be expensive, and no reranker can retrieve an excluded document. Candidate Recall@50 diagnoses that opportunity separately from final ranking quality.
+
+## Maximum of existing representative passages
+
+Use at most two distinct chunk IDs per document, already selected by the retrievers. A shared chunk is scored once and records both sources. Different chunk IDs remain distinct even if their text happens to match. Choose the max raw cross-encoder score and retain its passage; any strong passage can provide the document's ranking signal. Averaging would penalize one good passage paired with a weaker representative; searching all chunks would change the requested candidate/passage scope and cost.
+
+Max aggregation can favor documents with two opportunities and can amplify a falsely high passage score. Representatives may still omit useful evidence elsewhere. Raw logits are query-specific ranking values, not probabilities or factual confidence, and are not blended with retrieval scores. Exact document ties use document ID; passage ties use chunk ID.
+
+## Conservative CPU inference and honest timing
+
+Use batch size 16 and four Torch threads without optimization/model sweeps. The pair's query, passage, and special tokens share a 512-token budget; longest-first truncation can discard useful content. Dense's original 256-wordpiece truncation remains unchanged. No cross-encoder truncation count is measured in this milestone.
+
+Model loading is one-time preparation. Online timing separates unchanged hybrid top-50 generation and `CrossEncoder.predict` (including tokenization/inference); total online time additionally includes pair construction, validation, max aggregation, and sorting. Dense corpus encoding stays cached. Timings are local sequential observations, not controlled hardware benchmarks. Keep all prior JSON artifacts frozen and use new outputs for reranking/comparison. Store full ID orders plus final-ten passage details to support analysis without copying corpus bodies.
+
+## Measured Milestone 5 trade-off
+
+The [four-way comparison](../results/scifact_reranked_comparison.json) shows higher reranked Recall@5/10, MRR@10, and nDCG@10 than hybrid on this fixed split, with much higher CPU online latency dominated by cross-encoder inference. Candidate Recall@50 leaves some judged relevant documents unavailable; the final ranking recovers less than this candidate ceiling. Exact quality/timing values are generated in README and stored in the [reranked report](../results/scifact_reranked_test.json). No parameters changed after observing results.
+
+Automatic examples select query 128/document `8290953` moving from hybrid rank 9 to reranked rank 1, query 70/document `4414547` falling from 2 to 10, and query 13/document `1606628` absent from the 50 candidates. These demonstrate mixed per-query behavior and candidate limits; they do not explain the model's internal reasoning or prove claims in the passages.

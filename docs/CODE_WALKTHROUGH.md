@@ -50,3 +50,16 @@ Dense CLI commands are `prepare-dense`, `search-dense`, and `evaluate-dense`; `c
 Execution: CLI -> corpus/chunks/cache -> existing indexes -> complete chunk rankings -> unique document candidates -> RRF -> top-k -> JSON. Evaluation then compares parent IDs with qrels; labels never influence retrieval.
 
 `tests/test_hybrid.py` checks hand-calculated RRF scores, shared/single-source documents, raw-score independence, representative passages, duplicate chunks, ties, candidate depth, top-k, validation, fixture evaluation/cache reuse, example selection, and report compatibility/protection. Encoders are fake; tests have no network dependency. Runtime dependencies and baseline source files remain unchanged.
+
+## Reranker implementation
+
+- `reranker.RerankerConfig`: model/revision, combined token limit 512, CPU threads 4, and batch size 16. The reranker candidate depth is a separate fixed constant, 50, from hybrid's 100-document component pools.
+- `load_reranker`: lazy imports and revision-pinned CPU `CrossEncoder` with safetensors and identity score activation. `prepare-reranker` downloads/loads it without evaluating or encoding the corpus.
+- `representative_passages`: groups the two existing representatives by chunk ID and preserves their source names. Conflicting text/parent IDs and absent passages are rejected.
+- `rerank_candidates`: caps the supplied ranking at 50, builds pairs, calls one batched prediction, validates finite scalar outputs, takes each document's max passage score, and returns ranked results plus inference timing/pair count. It preserves the original `HybridResult`.
+- `reranked_evaluation.evaluate_reranked_scifact`: prepares once, times each stage over all test queries, computes existing metrics and candidate Recall@50, and records candidate/full reranked IDs and final-ten passage details without text.
+- `comparison.compare_reports(..., reranked_path=...)`: checks compatibility with the hybrid report and creates four-way metrics/latency plus automatic examples. Five places is the fixed threshold for a substantial movement, comparing the same judged document before/after; absence means it never entered the 50-document pool.
+
+Execution: CLI -> existing chunks/cache/indexes -> hybrid top 50 -> distinct representatives -> query/passage prediction -> max per parent -> final top-k -> metrics/report. `search-reranked` exposes readable winning passages; `evaluate-reranked` saves measurements. Previous baseline/comparison paths are protected; historical reruns need new output paths.
+
+`tests/test_reranker.py` uses fake CPU encoders/predictors. Cases cover max aggregation, duplicate representatives, single-source passages, ties, cutoff/batching, score shape/nonfinite values, provenance, integration/cache reuse, compatible/incompatible reports, example selection, and frozen outputs. The model-loading test mocks both transformer/runtime imports, never initializing a real model.

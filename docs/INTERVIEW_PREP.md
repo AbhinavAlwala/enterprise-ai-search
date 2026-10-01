@@ -4,6 +4,8 @@
 
 Information retrieval selects and ranks stored content for a user's information need expressed as a query. Here a local CLI ranks SciFact chunks using lexical BM25 or dense cosine similarity, and combines their parent-document rankings with RRF. It does not generate answers or verify claims.
 
+The current pipeline can also rerank the top 50 hybrid documents with a cross-encoder over existing representative passages.
+
 **How does a document differ from a chunk? Why chunk?**
 
 A document is an original source record with a stable source ID, title, and abstract. A chunk is a smaller searchable passage carrying its parent ID. Chunking makes matching more local in long texts. Overlap helps retain boundary context but duplicates evidence; SciFact abstracts are already short, so chunking is not assumed to improve their retrieval quality.
@@ -119,3 +121,35 @@ All four hybrid quality means improved over both baselines in this run, while on
 **What should you understand before Milestone 5?**
 
 Understand lexical/semantic complementarity; incompatible raw-score scales; reciprocal-rank contributions and k; chunk-to-document deduplication and representatives; candidate depth versus final top-k; deterministic ties; recall versus early-rank metrics; and online latency versus preparation costs. Explain each using this code and its executed reports.
+
+**How does retrieval differ from reranking in this code?**
+
+Retrieval searches the corpus and supplies 50 hybrid candidate documents. Reranking scores their existing query/passage pairs and changes only their order. It never fetches additional documents or passages. `HybridIndex.search` generates candidates; `rerank_candidates` scores and sorts them.
+
+**Bi-encoder versus cross-encoder: why does cost differ?**
+
+The bi-encoder separately embeds query/passages, letting corpus vectors be computed once and cached. The cross-encoder jointly processes both texts so query/passages interact during transformer inference. It must repeat that work per pair per query; CPU batches reduce overhead without removing the cost.
+
+**What does candidate Recall@50 tell us?**
+
+For each query, count judged relevant documents in the 50 candidates and divide by all judged positives, then macro-average. This measures the relevant content available before reranking. If a relevant document is missing, its score is never computed and reranking cannot recover it. Even perfect reranking cannot overcome that candidate ceiling, and the final cutoff can constrain recall further.
+
+**Why score two passages and take the maximum?**
+
+BM25 and dense may select different chunks. Score each distinct chunk ID once; choose the highest score as the parent's signal and retain its passage. This lets either representative supply evidence. It does not establish truth, and max can amplify false positives or favor documents with two passages.
+
+**What determines final scores and deterministic output?**
+
+Raw cross-encoder logits alone determine order. No BM25, cosine, or RRF score is added. Document ties use ascending document ID; passage ties use ascending chunk ID. Original hybrid ranks/component passages remain provenance. Scores are not probabilities.
+
+**Trace M5 and distinguish timing stages.**
+
+Load models/cache/indexes once -> unchanged hybrid top 50 -> deduplicated representatives -> batches of 16 query/passage pairs -> max score per document -> sorted top ten -> unchanged metrics and candidate recall -> JSON/comparison. One-time model loads are separate; online timing includes hybrid work, prediction/tokenization, aggregation, and sorting. No cached corpus encoding is counted online.
+
+**What should you understand before the next milestone?**
+
+Retrieval versus reranking; independent versus joint text encoding; candidate recall and missed-candidate ceilings; query/passage logits; max aggregation and representative bias; batching and token limits; provenance and deterministic ties; and measured quality versus online/preparation cost. All examples should come from saved execution artifacts.
+
+**What did M5's actual experiment show?**
+
+All four reranked quality means increased over hybrid, at much higher CPU online latency dominated by pair inference. Query 128's relevant document moved 9 -> 1, query 70's moved 2 -> 10, and query 13's judged document was absent from candidates. Read the four-way artifact/README for executed measurements. Better averages do not imply improvement for each query; candidate recall is opportunity, not achieved final recall or claim verification.
