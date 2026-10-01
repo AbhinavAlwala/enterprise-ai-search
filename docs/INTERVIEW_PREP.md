@@ -2,7 +2,7 @@
 
 **What is information retrieval, and what is implemented here?**
 
-Information retrieval selects and ranks stored content for a user's information need expressed as a query. Here a local CLI ranks SciFact chunks using lexical BM25 or dense cosine similarity, and combines their parent-document rankings with RRF. It does not generate answers or verify claims.
+Information retrieval selects and ranks stored content for a user's information need expressed as a query. Here a local CLI ranks SciFact chunks using lexical BM25 or dense cosine similarity, combines document rankings with RRF, and reranks candidates. A separate RAG layer can request answers from a configured generator; no real endpoint was available during M6, and claim verification is not implemented.
 
 The current pipeline can also rerank the top 50 hybrid documents with a cross-encoder over existing representative passages.
 
@@ -153,3 +153,31 @@ Retrieval versus reranking; independent versus joint text encoding; candidate re
 **What did M5's actual experiment show?**
 
 All four reranked quality means increased over hybrid, at much higher CPU online latency dominated by pair inference. Query 128's relevant document moved 9 -> 1, query 70's moved 2 -> 10, and query 13's judged document was absent from candidates. Read the four-way artifact/README for executed measurements. Better averages do not imply improvement for each query; candidate recall is opportunity, not achieved final recall or claim verification.
+
+**What does RAG mean in this implementation?**
+
+Retrieval-augmented generation places the top five winning reranked passages in the prompt before asking a model to answer. It supplies corpus-specific evidence rather than expecting the model to recall it. Retrieval selects stored text; generation produces new text from the question/context.
+
+**What is grounding, and does the prompt guarantee it?**
+
+Grounding asks the answer to rely on supplied evidence, cite supported claims, and admit insufficiency. Our one prompt specifies this behavior, but a model can still use outside knowledge, misread text, or follow misleading passage instructions. No hallucination or answer-quality guarantee is established.
+
+**What is source provenance? Do citations prove truth?**
+
+Evidence records preserve source number, document ID, selected chunk ID, reranked rank, and exact text. Validation maps `[n]` to those IDs and detects unknown/missing references. A valid marker proves only that the referenced block existed; it does not check claim entailment, coverage, or truth.
+
+**Why five passages, and how can context windows limit RAG?**
+
+Five is a fixed initial choice. More passages may add evidence but also distractors, prompt cost, and tokens. The model's input/output context capacity must fit the full prompt and requested answer. M6 does not count provider-specific tokens or trim passages automatically; the endpoint can reject an oversized prompt.
+
+**Why separate the generator from retrieval?**
+
+One `generate(messages) -> str` contract allows a configured HTTP endpoint or offline fake without changing the frozen retrieval functions. The client posts chat messages and parses answer text; corpus retrieval never depends on a provider SDK.
+
+**How is insufficient evidence handled?**
+
+The prompt supplies an explicit abstention sentence. The model decides from the passages; no arbitrary BM25/cosine/reranker threshold is used. With no passages the prompt states that evidence is absent. An uncited abstention is preserved with citation validation failed, as required by the reference-check policy.
+
+**Trace M6 and explain what has actually been verified.**
+
+CLI configuration -> existing corpus/cache/models -> hybrid 50 -> reranked five winning passages -> numbered context + one prompt -> configured generator -> numeric reference validation -> answer/provenance/timing JSON. Offline tests exercise the complete composition and HTTP contract with fakes/mocks. A real endpoint and generated answer were not verified; frozen retrieval metrics do not measure answer quality.

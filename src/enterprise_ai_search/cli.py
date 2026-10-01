@@ -3,6 +3,7 @@ import json
 import logging
 from dataclasses import asdict
 from pathlib import Path
+from time import perf_counter
 from urllib.error import URLError
 
 from enterprise_ai_search.bm25 import BM25Index
@@ -19,6 +20,7 @@ def _check_report_output(output: Path) -> None:
         Path("results/scifact_bm25_test.json").resolve(), Path("results/scifact_dense_test.json").resolve(),
         Path("results/scifact_hybrid_test.json").resolve(), Path("results/scifact_comparison.json").resolve(),
         Path("results/scifact_hybrid_comparison.json").resolve(),
+        Path("results/scifact_reranked_test.json").resolve(), Path("results/scifact_reranked_comparison.json").resolve(),
     ):
         raise ValueError("Output must not overwrite a frozen baseline report")
 
@@ -151,6 +153,30 @@ def _run_reranked(args: argparse.Namespace) -> None:
     print(json.dumps([asdict(result) for result in results], indent=2))
 
 
+def _run_ask(args: argparse.Namespace) -> None:
+    from enterprise_ai_search.generation import GenerationConfig, HttpGenerator
+    from enterprise_ai_search.rag import ask
+
+    started = perf_counter()
+    config = GenerationConfig.from_env()
+    if not args.question.strip():
+        raise ValueError("Question must be nonempty")
+    from enterprise_ai_search.dense import DenseIndex, load_encoder, prepare_embeddings
+    from enterprise_ai_search.hybrid import HybridIndex
+    from enterprise_ai_search.reranker import load_reranker
+
+    chunks = chunk_documents(load_corpus(args.data_dir / "corpus.jsonl.gz"))
+    encoder, _ = load_encoder(args.cache_dir / "models")
+    vectors, _ = prepare_embeddings(chunks, encoder, args.cache_dir / "chunks.npz")
+    index = HybridIndex(BM25Index(chunks), DenseIndex(chunks, vectors, encoder))
+    reranker, _ = load_reranker(args.model_cache_dir)
+    preparation_seconds = perf_counter() - started
+    result = ask(args.question, index, reranker, HttpGenerator(config))
+    output = asdict(result)
+    output["timings"].update(preparation_seconds=preparation_seconds, total_end_to_end_seconds=perf_counter() - started)
+    print(json.dumps(output, indent=2, ensure_ascii=False, allow_nan=False))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="SciFact lexical, dense, hybrid, and reranked retrieval")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -203,9 +229,17 @@ def main() -> None:
             command.add_argument("--top-k", type=int, default=5)
         if name == "evaluate-reranked":
             command.add_argument("--output", type=Path, default=Path("results/scifact_reranked_test.json"))
+    ask_command = commands.add_parser("ask", help="Answer a question from five reranked evidence passages")
+    ask_command.add_argument("question")
+    ask_command.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
+    ask_command.add_argument("--cache-dir", type=Path, default=Path("data/dense"))
+    ask_command.add_argument("--model-cache-dir", type=Path, default=Path("data/reranker/models"))
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     try:
+        if args.command == "ask":
+            _run_ask(args)
+            return
         if args.command in ("prepare-reranker", "search-reranked", "evaluate-reranked"):
             _run_reranked(args)
             return

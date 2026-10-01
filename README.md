@@ -2,12 +2,13 @@
 
 A retrieval engineering project built in tested milestones, with explicit algorithms, reproducible evaluation, and documented trade-offs.
 
-**Status: Milestone 5 implemented.** A local CLI supports BM25, exact dense search, document RRF, and cross-encoder reranking. All four are evaluated on the same 300-query SciFact test split. Frozen retrievers, preprocessing, and previous result artifacts are preserved.
+**Status: Milestone 6 implemented.** A local CLI provides BM25, exact dense search, document RRF, cross-encoder reranking, and a thin retrieval-augmented generation (RAG) layer with source-reference validation. Retrieval is evaluated on the same 300-query SciFact test split. RAG and the HTTP boundary are tested offline with fakes; no real generation endpoint is configured or verified yet. Frozen retrieval source and artifacts are preserved.
 
 - Verified, revision-pinned [BEIR SciFact](https://github.com/beir-cellar/beir/wiki/Datasets-available) ingestion and deterministic overlapping chunks.
 - Explicit BM25 and revision-pinned `sentence-transformers/all-MiniLM-L6-v2` with cached 384-dimensional CPU embeddings.
 - Equal-weight document RRF: `k=60`, 100 unique document candidates per retriever, chosen before hybrid evaluation.
 - Revision-pinned `cross-encoder/ms-marco-MiniLM-L6-v2`: reranks the top 50 hybrid documents using the maximum score across their existing representative passages, in CPU batches of 16.
+- Top-five winning passages form numbered evidence blocks for an independently configured OpenAI-compatible generator. Answers retain source mappings and explicit citation-validation status.
 - Offline fixture tests, deterministic ranking, and reports with per-query results, input/source fingerprints, and separate preparation costs.
 
 ## Measured results
@@ -42,13 +43,24 @@ uv run --locked --cache-dir .uv-cache enterprise-search prepare-dense
 uv run --locked --offline --cache-dir .uv-cache enterprise-search prepare-reranker
 $env:HF_HUB_OFFLINE = "1"
 uv run --locked --offline --cache-dir .uv-cache enterprise-search search-reranked "Arterioles have a larger lumen diameter than venules." --top-k 3
-uv run --locked --offline --cache-dir .uv-cache enterprise-search evaluate-reranked
-uv run --locked --offline --cache-dir .uv-cache enterprise-search compare --hybrid results/scifact_hybrid_test.json --reranked results/scifact_reranked_test.json --output results/scifact_reranked_comparison.json
+uv run --locked --offline --cache-dir .uv-cache enterprise-search compare --hybrid results/scifact_hybrid_test.json --reranked results/scifact_reranked_test.json --output results/scifact_comparison_rerun.json
 ```
 
 `search` and `search-dense` return chunks; `search-hybrid` returns RRF documents; `search-reranked` returns documents with cross-encoder scores, winning passages, and original hybrid provenance. Defaults are `data/scifact`, `data/dense`, `data/reranker/models`, 180-word chunks with 30-word overlap, and search top-k 5. Evaluations use fixed settings and top ten documents without tuning flags.
 
-Downloaded data, models, and NPZ caches are ignored. After initial downloads, cached operations work offline. Unset `HF_HUB_OFFLINE` before downloading a missing model; `uv --offline` only controls package access. To rerun frozen evaluations/comparisons, specify a new `--output` path, such as `evaluate-hybrid --output results/scifact_hybrid_rerun.json`; CLI writers protect all five M1-M4 result files.
+Downloaded data, models, and NPZ caches are ignored. After initial downloads, cached retrieval operations work offline. Unset `HF_HUB_OFFLINE` before downloading a missing model; `uv --offline` only controls package access. To rerun frozen evaluations/comparisons, specify a new `--output` path, such as `evaluate-reranked --output results/scifact_reranked_rerun.json`; CLI writers protect all seven previous result files.
+
+## Answer generation
+
+Start an existing OpenAI-compatible chat endpoint serving a model, then set `GENERATION_ENDPOINT` to its full chat-completions URL and `GENERATION_MODEL` to that server's model identifier. Set `GENERATION_API_KEY` only if authentication is required. [.env.example](.env.example) documents these variables; the application reads the process environment and does not automatically load `.env`.
+
+```powershell
+$env:GENERATION_ENDPOINT = "http://localhost:8000/v1/chat/completions"
+$env:GENERATION_MODEL = "your-served-model"
+uv run --locked --offline --cache-dir .uv-cache enterprise-search ask "What does the retrieved evidence say about PPM1D and p53?"
+```
+
+The URL/model above are configuration examples, not an available service or executed generated answer. `ask` prints JSON containing the answer, selected passages, citation-to-document/chunk mappings, validation status, and separate preparation/retrieval/generation/total timings. The client uses standard-library HTTP with optional bearer authentication, a 60-second timeout, and `max_tokens=512`. Generation requires endpoint connectivity even when package/model caches are offline. No local LLM is downloaded by this project.
 
 ## Engineering documentation
 
@@ -62,4 +74,4 @@ Downloaded data, models, and NPZ caches are ignored. After initial downloads, ca
 
 The reranker cannot recover documents outside the 50 candidates, and only sees existing representative passages. Max passage aggregation can amplify false positives; some judged documents move downward despite better mean metrics. BM25, cosine, RRF, and cross-encoder scores are ranking signals, not probabilities or factual verification.
 
-The dense encoder truncates 3,478 of 8,778 unchanged chunks. Cross-encoder pairs share a 512-token limit and may also be truncated; that count is not audited. Qrels can be incomplete. This corpus and local CPU run do not establish enterprise-scale performance. No generation, server API, or production deployment is implemented.
+The dense encoder truncates 3,478 of 8,778 unchanged chunks. Cross-encoder pairs share a 512-token limit and may also be truncated; that count is not audited. Qrels can be incomplete. Generation sees only five passages; their combined prompt must fit the configured model's context window. Citation validation checks references, not whether claims are supported or true. Answer quality and real endpoint compatibility remain unmeasured. No server API or production deployment is implemented.

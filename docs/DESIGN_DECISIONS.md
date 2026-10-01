@@ -141,3 +141,21 @@ Model loading is one-time preparation. Online timing separates unchanged hybrid 
 The [four-way comparison](../results/scifact_reranked_comparison.json) shows higher reranked Recall@5/10, MRR@10, and nDCG@10 than hybrid on this fixed split, with much higher CPU online latency dominated by cross-encoder inference. Candidate Recall@50 leaves some judged relevant documents unavailable; the final ranking recovers less than this candidate ceiling. Exact quality/timing values are generated in README and stored in the [reranked report](../results/scifact_reranked_test.json). No parameters changed after observing results.
 
 Automatic examples select query 128/document `8290953` moving from hybrid rank 9 to reranked rank 1, query 70/document `4414547` falling from 2 to 10, and query 13/document `1606628` absent from the 50 candidates. These demonstrate mixed per-query behavior and candidate limits; they do not explain the model's internal reasoning or prove claims in the passages.
+
+## Thin generation after frozen retrieval
+
+RAG means retrieval-augmented generation: selected source text is supplied to a generator so an answer can use corpus evidence. Retrieval finds passages; generation synthesizes text. Keep these responsibilities separate so an endpoint can change without altering the measured retrieval baseline.
+
+Use a tiny `Generator` protocol and standard-library HTTP client, not a vendor SDK or orchestration framework. The text chat-completions request/response shape follows the [official API reference](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create). A full URL avoids provider-specific base-path inference. Endpoint/model/key are process environment variables; no dotenv dependency or automatic file loading is needed. The client supports a small non-streaming subset with `max_tokens=512`; some model/provider variants require different parameters and are not verified here. No endpoint/model was configured, and no real LLM download or generated-answer claim was made.
+
+## Five winning passages and one prompt
+
+Use five reranked documents, fixed before any generated examples. Preserve only their already-selected representative passages. More context can increase useful evidence but also adds cost, distractors, and context-window pressure. No extra chunk search, score threshold, automatic token-budget trimming, or model routing is justified in this milestone.
+
+One prompt asks for evidence-only answers, source markers, and an explicit insufficient-evidence response. This is a grounding instruction, not a guarantee; retrieved text can be irrelevant, incomplete, contradictory, or contain misleading instructions. An empty context is sent explicitly, with no fabricated evidence. The model determines insufficiency rather than a retrieval-score threshold. Output cap/timeout are conservative operational defaults, not quality-tuned values.
+
+## Reference validation without claim verification
+
+Number context blocks deterministically and map bracketed integers back to document/chunk IDs. Missing markers or unknown numbers fails validation; keep the answer and report that failure. An uncited insufficiency response also fails citation validation, even though abstaining can be appropriate. Do not silently invent citations or regenerate until validation passes.
+
+Valid reference syntax only establishes that a cited source was supplied. It does not establish that the source supports the nearby claim, that all claims are cited, or that the answer is true. Answer-quality evaluation is deferred. Generation can be nondeterministic despite deterministic context; backend compatibility and context-window capacity must be checked when a real server/model is configured.

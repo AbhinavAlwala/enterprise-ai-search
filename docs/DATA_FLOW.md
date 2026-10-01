@@ -59,3 +59,15 @@ Online hybrid timing includes both retrieval paths, query encoding, document ext
 7. Save `results/scifact_reranked_test.json`; four-way comparison writes a new artifact. Compatibility checks include identical inputs/policies, fixed settings, unchanged hybrid top-ten prefix, and a reranked permutation of the candidate pool. Examples are selected automatically using a fixed five-rank movement rule or absence from the pool.
 
 Online time covers hybrid retrieval, pair preparation, inference, passage aggregation, and final document construction. Candidate generation and prediction are separately timed; prediction includes tokenizer and model work. Model loads and corpus preparation are excluded from online time. Candidate Recall@50 is the fraction of judged relevant documents available for reranking, an upper bound on recoverable recall; a final top-ten cutoff can impose a tighter bound.
+
+## RAG flow
+
+1. `ask` checks generation endpoint/model configuration before loading corpus or models. The CLI then prepares the same chunks, encoder/cache, hybrid index, and reranker as M5.
+2. `rag.ask` calls unchanged hybrid top-50 retrieval and `rerank_candidates(..., top_k=5)`. No score threshold, tuning, extra passage search, or new model is introduced.
+3. `select_evidence` preserves the five winning passages' parent/chunk IDs, reranked document ranks, and exact text. Source numbers 1 through N follow that order, independent of original IDs.
+4. `build_context` emits `[n] Document: ...; Chunk: ...; Rank: ...` followed by passage text, separating blocks with blank lines. `build_messages` adds one system prompt and one user message containing the question/context. Empty retrieval is represented explicitly as no evidence; the model still decides insufficiency.
+5. `HttpGenerator.generate` sends model/messages to the configured full chat-completions URL using a non-streaming JSON POST, optional bearer key, timeout 60 seconds, and output cap 512 tokens. It reads `choices[0].message.content`; malformed/empty responses and HTTP/network failures become concise errors without server bodies or keys.
+6. `validate_citations` extracts numeric bracket markers, deduplicates repeated numbers in first-appearance order, maps valid numbers to document/chunk IDs, and records unknown numbers. Missing markers or any unknown number fails validation. The answer is preserved, including an uncited insufficient-evidence response.
+7. The CLI prints answer/evidence/validation/timing JSON. No previous result artifact is written. Preparation and total end-to-end time include CLI model/cache/index setup; online time excludes setup but includes context construction and citation checking. Retrieval/reranking and generation-request time are measured separately. Frozen retrieval benchmarks remain unchanged.
+
+Context is deterministic for an unchanged reranked list; generated text need not be. The configured model must fit the complete five-passage prompt plus output within its context window. No model-specific token counting or passage trimming is implemented.

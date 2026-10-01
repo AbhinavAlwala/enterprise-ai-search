@@ -1,6 +1,6 @@
 # Current architecture
 
-The project is a single Python 3.12 package with a local CLI, lexical/exact dense indexes, document RRF, and a cross-encoder reranker over existing candidate passages.
+The project is a single Python 3.12 package with a local CLI, lexical/exact dense indexes, document RRF, a cross-encoder reranker, and an independent HTTP answer-generation boundary.
 
 ```text
 download command -> pinned BEIR mirror files -> local data/scifact/
@@ -24,6 +24,8 @@ search-reranked -> unchanged hybrid top 50 -> representative pairs -> cross-enco
                 -> max passage score per document -> sorted top-k documents
 evaluate-reranked -> same test split/metrics + candidate Recall@50 -> new JSON
 compare --hybrid --reranked -> four saved reports -> validation -> comparison/examples
+ask -> unchanged hybrid/reranker -> five winning passages -> numbered context/prompt
+    -> configured chat-completions HTTP endpoint -> answer + citation/source validation
 ```
 
 - `models.py`: frozen `Document`, `Chunk`, and `SearchResult` dataclasses.
@@ -39,7 +41,11 @@ compare --hybrid --reranked -> four saved reports -> validation -> comparison/ex
 - `hybrid_evaluation.py`: reuses dense preparation/cache and existing metrics for the full hybrid test run.
 - `reranker.py`: fixed model configuration, representative deduplication, batched pair scoring, and max passage aggregation with provenance.
 - `reranked_evaluation.py`: full test-split evaluation with candidate recall and separate candidate/inference/online timings.
+- `rag.py`: evidence/context models, the grounding prompt, source-reference validation, and thin query-to-answer composition.
+- `generation.py`: a small `Generator` protocol and standard-library `HttpGenerator`, configured through environment variables. Tests inject a fake implementation.
 
-BM25 itself remains standard-library code. Dense retrieval needs NumPy, sentence-transformers, and CPU PyTorch plus their required dependencies. pytest is a development dependency; Hatchling builds the distribution. `uv.lock` records environment resolution. Each dense command loads the encoder and verifies/reuses or regenerates chunk embeddings. Evaluation builds one index for all queries. Data, model weights, and binary caches under `data/` remain ignored; generated result JSON is appropriate to commit. There are no server APIs, vector databases, or generation calls.
+BM25 and HTTP generation use the standard library. Dense retrieval needs NumPy, sentence-transformers, and CPU PyTorch plus their required dependencies. pytest is a development dependency; Hatchling builds the distribution. `uv.lock` records environment resolution. Each dense command loads the encoder and verifies/reuses or regenerates chunk embeddings. Evaluation builds one index for all queries. Data, model weights, and binary caches remain ignored. No SDK, orchestration framework, server API, or vector database was added.
 
 Reranking reuses the installed sentence-transformers `CrossEncoder` API without new dependencies. Its weights live in `data/reranker/models/`. Pair scoring runs online; passage representations cannot be cached independently of the query as dense embeddings can. Frozen retriever modules remain unchanged.
+
+Generation runs in one non-streaming request after retrieval; it cannot change candidate selection or request more passages. No real endpoint/model was configured during M6, so generation integration is verified with fakes/mocked HTTP only. Answer evaluation is not implemented.

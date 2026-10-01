@@ -63,3 +63,17 @@ Execution: CLI -> corpus/chunks/cache -> existing indexes -> complete chunk rank
 Execution: CLI -> existing chunks/cache/indexes -> hybrid top 50 -> distinct representatives -> query/passage prediction -> max per parent -> final top-k -> metrics/report. `search-reranked` exposes readable winning passages; `evaluate-reranked` saves measurements. Previous baseline/comparison paths are protected; historical reruns need new output paths.
 
 `tests/test_reranker.py` uses fake CPU encoders/predictors. Cases cover max aggregation, duplicate representatives, single-source passages, ties, cutoff/batching, score shape/nonfinite values, provenance, integration/cache reuse, compatible/incompatible reports, example selection, and frozen outputs. The model-loading test mocks both transformer/runtime imports, never initializing a real model.
+
+## Thin RAG implementation
+
+- `generation.Generator`: one `generate(messages) -> str` boundary, allowing an HTTP implementation or test fake without provider logic in retrieval.
+- `GenerationConfig.from_env`: requires the full endpoint URL and served-model ID; the optional key is excluded from dataclass repr. `.env.example` is a reference, not an automatically loaded configuration file.
+- `HttpGenerator.generate`: JSON POST/response parsing with explicit timeout/output limit and sanitized failure messages. It uses no SDK or retry chain.
+- `rag.EvidenceItem`, `Citation`, `CitationValidation`, and `GeneratedAnswer`: small frozen records for selected passages, source mappings, validation status, and output/timings.
+- `select_evidence` and `build_context`: top-five cutoff, exact winning text/provenance, and deterministic numbering/blocks.
+- `SYSTEM_PROMPT` and `build_messages`: the single location for evidence-only answering, insufficiency, citation syntax, and concise output instructions.
+- `validate_citations`: recognizes integer markers such as `[1]`, checks membership in supplied source numbers, and preserves valid mappings when another reference is invalid. Grouped syntax such as `[1, 2]` is unsupported. This function does not evaluate entailment or whether every claim has a citation.
+- `rag.ask`: calls existing hybrid/reranking functions, builds evidence/messages, invokes one generator, validates references, and measures each online stage.
+- `cli._run_ask`: checks configuration first, prepares existing models/index/cache, and adds preparation/total end-to-end timing to JSON output. Previous report writers now protect all seven frozen artifacts.
+
+Tests in `test_rag.py` use existing BM25/dense/hybrid/reranking functions with tiny vectors and fake models/generators, including the full CLI path. `test_generation.py` mocks HTTP to verify payload/authentication, parsing, timeout/configuration errors, and secret-safe failures. No test calls a real LLM, downloads models, or needs network access.
