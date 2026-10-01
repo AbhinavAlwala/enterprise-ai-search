@@ -5,10 +5,19 @@ build-backend = "hatchling.build"
 [project]
 name = "enterprise-ai-search"
 version = "0.1.0"
-description = "Foundation for an enterprise document search and retrieval platform."
+description = "A local BM25 document search baseline using the BEIR SciFact corpus."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = []
+
+[project.scripts]
+enterprise-search = "enterprise_ai_search.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8.3,<9"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/enterprise_ai_search"]

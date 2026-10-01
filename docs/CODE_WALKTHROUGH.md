@@ -1,14 +1,18 @@
 # Code walkthrough
 
-- `pyproject.toml` defines the distribution, Python 3.12 requirement, and build backend. The wheel configuration includes the package under `src/`.
-- `src/enterprise_ai_search/__init__.py` establishes the importable package. It contains no functions or application logic.
-- `.gitignore` excludes local environments, generated artifacts, caches, and local secret files.
-- `AGENTS.md` preserves scope, engineering, and documentation rules for future tasks.
+- `models.py`: `Document` represents a source record; `Chunk` represents a searchable passage with a parent ID; `SearchResult` adds rank and score. Frozen dataclasses discourage accidental record mutation.
+- `dataset.py`: `FILES` fixes download provenance and SHA-256 values. `download_scifact` verifies cached/downloaded bytes and replaces files only after verification. `load_corpus` separately handles plain or compressed JSONL without network access.
+- `text.py`: `ChunkingConfig` centralizes size/overlap and validates them. `normalize_text` keeps readable case/punctuation. `tokenize` creates case-insensitive search terms. `chunk_documents` creates deterministic windows and validates document IDs.
+- `bm25.py`: `BM25Index.__init__` computes corpus statistics once. `search` computes each chunk's score, filters nonmatches, sorts, and returns result records. This is a concrete index, not a framework for future retrievers.
+- `cli.py`: `main` parses commands. Download does not build an index. Search loads documents, creates chunks/index, executes the query, and serializes dataclasses to JSON. Errors exit with status 2; logging uses stderr.
+- `pyproject.toml` declares the CLI entry point and pytest development dependency; `uv.lock` records resolved versions. `.gitignore` excludes downloaded data, environments, and generated files. `AGENTS.md` preserves milestone boundaries.
 
-## Setup flow
+## Execution and checks
 
-`uv sync` resolves the project, creates `.venv`, and installs the package in editable mode. The import check verifies that the package is discoverable. `uv build` produces a source distribution and wheel under `dist/`.
+`uv sync --locked --cache-dir .uv-cache` installs the package in editable mode and development dependencies. The installed `enterprise-search` entry point calls `cli.main`; `python -m enterprise_ai_search.cli` reaches the same function.
 
-Understand the distinction between the distribution name (`enterprise-ai-search`) and the Python import name (`enterprise_ai_search`), and between a build dependency and a runtime dependency.
+`uv run --locked --cache-dir .uv-cache pytest` runs local fixtures. Retrieval tests include a manually calculated score, overlap boundaries, no matches, deterministic ties, and invalid parameters. Dataset tests cover malformed records, checksums, cache repair, and failed-download cleanup using mocked responses.
 
-There are no application tests or configured formatting/linting tools yet.
+The real-corpus smoke query is in README. `uv build --offline --cache-dir .uv-cache` works after build dependencies are cached and produces source/wheel artifacts under `dist/`. No formatter or linter is configured.
+
+Understand the distribution name (`enterprise-ai-search`) versus import name (`enterprise_ai_search`), and why tests exercise installed source through the src layout.

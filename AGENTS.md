@@ -30,4 +30,4 @@
 - `docs/DESIGN_DECISIONS.md`: choices, rationale, alternatives, and trade-offs.
 - `docs/INTERVIEW_PREP.md`: questions and answers grounded only in implemented features.
 
-The current milestone is foundation only. No ingestion, search, embeddings, reranking, evaluation, RAG, API, database, ML, or Docker functionality exists yet.
+The implemented scope is Milestone 1: SciFact ingestion, normalization, deterministic chunking, BM25 lexical retrieval, and a local CLI. Do not add dense retrieval, evaluation, or other future features without a requested milestone. Unit tests must use local fixtures and avoid network access. Keep downloaded data out of Git.
