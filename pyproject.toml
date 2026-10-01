@@ -1,0 +1,14 @@
+[build-system]
+requires = ["hatchling>=1.26,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "enterprise-ai-search"
+version = "0.1.0"
+description = "Foundation for an enterprise document search and retrieval platform."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/enterprise_ai_search"]
