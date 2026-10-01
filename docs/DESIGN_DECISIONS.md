@@ -64,7 +64,7 @@ Treat grade > 0 as relevant for Recall/MRR, and unjudged documents as gain zero.
 
 ## Reproducibility and interpretation
 
-The generated JSON contains aggregate/per-query metrics and top document IDs without corpus text, keeping it small enough to commit. Settings, input/source hashes, Python/OS details, and timing boundaries describe the run. Rerunning overwrites the default report; `--output` can preserve another run. No numeric quality values are manually written into code or README.
+The generated JSON contains aggregate/per-query metrics and top document IDs without corpus text, keeping it small enough to commit. Settings, input/source hashes, Python/OS details, and timing boundaries describe the run. The original BM25/dense reports are frozen and CLI writers reject their paths; reruns require another `--output`. Numeric quality values in README are generated from executed artifacts rather than typed manually.
 
 Quality and latency answer different questions. Recall/MRR/nDCG measure agreement with provided judgments; latency measures local work on an already-built index. Total time includes setup and metric/report assembly. This is one local sequential run without warmup, repeated trials, uncertainty estimates, or production load. Qrels may be incomplete, and abstract retrieval on SciFact does not establish general enterprise search quality or factual correctness. This configuration's chunk-based statistics and parent mapping differ from a whole-document BM25 baseline.
 
@@ -97,3 +97,23 @@ Report corpus encoding once and cache/index preparation separately from online q
 The [generated comparison](../results/scifact_comparison.json) shows higher dense Recall@5/10 but lower MRR@10 and nDCG@10. Dense finds more judged documents within the cutoffs while its early ranking is weaker on average. Its measured online latency is slightly lower in these separate runs, at the expense of model loading and substantial one-time corpus encoding. The [dense report](../results/scifact_dense_test.json) records these costs and the token-limit audit: 3,478 of 8,778 chunks are truncated. No settings were changed in response to the result.
 
 The fixed example rule selects query 1, where dense retrieves relevant document `31715818` at rank 5 and BM25 misses it in the top ten, and query 70, where BM25 retrieves relevant documents `5956380` and `4414547` at ranks 1 and 2 while dense misses both in the top ten. These illustrate differing failures without establishing their causes or universal superiority.
+
+## Document RRF without score calibration
+
+BM25 captures precise token matches; embeddings can capture related meanings with different words. Their measured differing failures motivate combining rankings. Raw scores have different scales and meanings: BM25 depends on token statistics, while cosine compares vector directions. Adding them would impose an arbitrary relative weight without calibration.
+
+Use equal-weight Reciprocal Rank Fusion: `score(d) = sum(1 / (60 + rank(d)))` over lists containing the document. Fixed `k=60` softens the advantage of rank 1 and lets agreement contribute strongly. This follows the [RRF formulation](https://doi.org/10.1145/1571941.1572114); it is not a claim that 60 is optimal here. Alternatives include calibrated score combination or learned fusion, but add choices/training this baseline does not need. No new dependency is required.
+
+Fuse documents because SciFact qrels label documents. Each retriever retains its first/best chunk for each parent, then assigns consecutive document ranks. Repeated windows cannot add votes. Keep both representative passages: the retrievers can prefer different chunks of the same source. Exact fused-score ties use ascending document ID, independent of raw scores.
+
+## Fixed candidates, separate final cutoff
+
+Choose **100 unique documents per retriever before seeing hybrid metrics**, ten times the evaluated final cutoff. This provides a modest pool beyond ten while keeping fusion simple. It is an initial choice, not a completeness guarantee or test-set optimum. Full chunk rankings precede deduplication so repeated passages cannot consume document slots. Candidates outside the top 100 contribute no vote.
+
+The union has at most 200 documents; RRF returns final top-k. Complete retrieval/sorting remains the dominant work on this small corpus. Deeper pools or more efficient candidate generation require a separate experiment; no parameter sweep was performed.
+
+## Measured Milestone 4 trade-offs
+
+The [three-way comparison](../results/scifact_hybrid_comparison.json) reports higher hybrid Recall@5/10, MRR@10, and nDCG@10 than both frozen baselines on these 300 queries, with higher average online latency. Recall@10's gain over dense is modest. The model and embedding cache were reused; online hybrid work includes sequential BM25, query encoding/dense scanning, document extraction, and RRF. Setup is separate. These local runs are not a controlled hardware benchmark.
+
+Example selection is automatic: first numeric query ID per category, with no ranking changes. Query 70 has a hybrid top-ten hit despite dense missing; query 75 moves the first relevant hit from BM25 rank 2/dense rank 3 to hybrid rank 1; query 1 loses dense's rank-5 hit in hybrid's top ten. Agreement can outweigh a valuable single-retriever match, so better averages do not mean improvement for every query. Input/source hashes and compatibility checks preserve provenance. No baseline settings or test-set parameters were changed.

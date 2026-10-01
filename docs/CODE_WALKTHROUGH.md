@@ -16,7 +16,7 @@
 
 `tests/test_evaluation.py` checks document deduplication, candidate exhaustion, deterministic ties, multiple positives, no hits, cutoff boundaries, linear graded nDCG with a full ideal ranking, malformed qrels, inconsistent IDs, macro aggregation, and CLI-generated JSON. No evaluation test downloads data.
 
-`uv run --locked --cache-dir .uv-cache enterprise-search evaluate` runs the entire local test split and produces the committed baseline artifact. Quality values in that artifact come from execution, not hand-maintained constants. No new dependency was introduced for evaluation.
+`uv run --locked --cache-dir .uv-cache enterprise-search evaluate --output results/scifact_bm25_rerun.json` reruns the entire local test split while preserving the frozen baseline artifact. Quality values come from execution, not hand-maintained constants. No new dependency was introduced for evaluation.
 
 The real-corpus smoke query is in README. `uv build --offline --cache-dir .uv-cache` works after build dependencies are cached and produces source/wheel artifacts under `dist/`. No formatter or linter is configured.
 
@@ -36,3 +36,17 @@ Understand the distribution name (`enterprise-ai-search`) versus import name (`e
 Dense CLI commands are `prepare-dense`, `search-dense`, and `evaluate-dense`; `compare` uses saved reports. `--cache-dir` changes the local dense cache, and `--rebuild` regenerates vectors. After the first model download, setting `HF_HUB_OFFLINE=1` prevents Hub checks for cached model files. `uv --offline` controls package access separately.
 
 `tests/test_dense.py` uses tiny vectors and fake encoders to check shapes, zero/nonfinite vectors, cosine order, ties, top-k, stale/corrupt caches, and truncation auditing. `tests/test_dense_evaluation.py` checks complete integration with existing metrics, cache reuse, artifact comparison, and BM25 report overwrite protection. Neither test file downloads a model.
+
+## Hybrid implementation
+
+- `hybrid.DocumentCandidate` stores a compact document rank, parent ID, and the retriever's best passage. `HybridResult` adds fused rank/score and optional representatives from each component.
+- `document_candidates` reuses `evaluation.ranked_document_ids` and looks up each parent's first chunk. Duplicate chunks cannot inflate rank contributions.
+- `reciprocal_rank_fusion` validates unique, consecutive document rankings, adds fixed reciprocal contributions, and sorts the union by score then document ID. Missing candidates contribute nothing; raw component scores are never compared.
+- `HybridIndex.search` requests complete rankings from the existing indexes, extracts the fixed 100-document candidate lists, and returns final top-k RRF documents. Its constructor checks identical ordered chunks. No retriever interface/factory is added.
+- `hybrid_evaluation.evaluate_hybrid_scifact` loads once, reuses the validated dense cache, times online searches, calls existing metrics, and records per-query fusion details and provenance.
+- `comparison.compare_reports(..., hybrid_path=...)` validates a third report and selects deterministic examples from saved rankings: hybrid hits despite a component miss, earlier first hits than both components, and hybrid misses despite a component hit, all at cutoff ten.
+- `cli` exposes `search-hybrid`, `evaluate-hybrid`, and optional `compare --hybrid`. Output validation protects both frozen baseline paths before expensive evaluations.
+
+Execution: CLI -> corpus/chunks/cache -> existing indexes -> complete chunk rankings -> unique document candidates -> RRF -> top-k -> JSON. Evaluation then compares parent IDs with qrels; labels never influence retrieval.
+
+`tests/test_hybrid.py` checks hand-calculated RRF scores, shared/single-source documents, raw-score independence, representative passages, duplicate chunks, ties, candidate depth, top-k, validation, fixture evaluation/cache reuse, example selection, and report compatibility/protection. Encoders are fake; tests have no network dependency. Runtime dependencies and baseline source files remain unchanged.

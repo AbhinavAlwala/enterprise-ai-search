@@ -14,9 +14,15 @@ logger = logging.getLogger(__name__)
 DEFAULT_DATA_DIR = Path("data/scifact")
 
 
+def _check_report_output(output: Path) -> None:
+    if output.resolve() in (
+        Path("results/scifact_bm25_test.json").resolve(), Path("results/scifact_dense_test.json").resolve(),
+    ):
+        raise ValueError("Output must not overwrite a frozen baseline report")
+
+
 def _save_report(output: Path, report: dict) -> None:
-    if output.resolve() == Path("results/scifact_bm25_test.json").resolve():
-        raise ValueError("Output must not overwrite the frozen BM25 report")
+    _check_report_output(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n", encoding="utf-8")
 
@@ -42,8 +48,7 @@ def _run_dense_search_or_prepare(args: argparse.Namespace) -> None:
 def _run_dense_evaluation(args: argparse.Namespace) -> None:
     from enterprise_ai_search.dense_evaluation import evaluate_dense_scifact
 
-    if args.output.resolve() == Path("results/scifact_bm25_test.json").resolve():
-        raise ValueError("Dense output must not overwrite the frozen BM25 report")
+    _check_report_output(args.output)
     report = evaluate_dense_scifact(args.data_dir, args.cache_dir, args.rebuild)
     _save_report(args.output, report)
     print(f"SciFact dense test: {report['counts']['evaluated_queries']} queries")
@@ -61,16 +66,47 @@ def _run_dense_evaluation(args: argparse.Namespace) -> None:
 def _run_comparison(args: argparse.Namespace) -> None:
     from enterprise_ai_search.comparison import compare_reports
 
-    if args.output.resolve() in (args.bm25.resolve(), args.dense.resolve()):
+    inputs = [args.bm25.resolve(), args.dense.resolve()]
+    if args.hybrid is not None:
+        inputs.append(args.hybrid.resolve())
+    if args.output.resolve() in inputs:
         raise ValueError("Comparison output must not overwrite its input reports")
-    report = compare_reports(args.bm25, args.dense, args.data_dir)
+    report = compare_reports(args.bm25, args.dense, args.data_dir, args.hybrid)
     _save_report(args.output, report)
-    print("Metric              BM25       Dense       Dense - BM25")
+    methods = ["bm25", "dense"] + (["hybrid"] if args.hybrid is not None else [])
+    print("Metric          " + "".join(f"{method:>12}" for method in methods))
     for name, values in report["metrics"].items():
-        print(f"{name:16} {values['bm25']:10.6f} {values['dense']:10.6f} {values['dense_minus_bm25']:+13.6f}")
-    latency = report["query_latency_ms"]
-    print(f"Query latency ms {latency['bm25']:10.3f} {latency['dense']:10.3f}")
+        print(f"{name:16}" + "".join(f"{values[method]:12.6f}" for method in methods))
+    print("Query latency ms" + "".join(f"{report['query_latency_ms'][method]:12.3f}" for method in methods))
     print(f"Saved: {args.output}")
+
+
+def _run_hybrid(args: argparse.Namespace) -> None:
+    if args.command == "evaluate-hybrid":
+        from enterprise_ai_search.hybrid_evaluation import evaluate_hybrid_scifact
+
+        _check_report_output(args.output)
+        report = evaluate_hybrid_scifact(args.data_dir, args.cache_dir)
+        _save_report(args.output, report)
+        settings = report["settings"]
+        print(f"SciFact hybrid test: {report['counts']['evaluated_queries']} queries; "
+              f"RRF k={settings['rrf_k']}; depth={settings['candidate_depth_documents_per_retriever']} documents/retriever")
+        for name, value in report["metrics"].items():
+            print(f"{name}: {value:.6f}")
+        print(f"Average online hybrid query: {report['performance']['average_query_seconds'] * 1000:.3f} ms")
+        print(f"Total evaluation: {report['performance']['total_evaluation_seconds']:.3f} s")
+        print(f"Saved: {args.output}")
+        return
+    from enterprise_ai_search.dense import DenseIndex, load_encoder, prepare_embeddings
+    from enterprise_ai_search.hybrid import HybridIndex
+
+    if args.top_k <= 0:
+        raise ValueError("top_k must be positive")
+    chunks = chunk_documents(load_corpus(args.data_dir / "corpus.jsonl.gz"))
+    encoder, _ = load_encoder(args.cache_dir / "models")
+    vectors, _ = prepare_embeddings(chunks, encoder, args.cache_dir / "chunks.npz")
+    results = HybridIndex(BM25Index(chunks), DenseIndex(chunks, vectors, encoder)).search(args.query, args.top_k)
+    print(json.dumps([asdict(result) for result in results], indent=2))
 
 
 def main() -> None:
@@ -101,13 +137,26 @@ def main() -> None:
     compare = commands.add_parser("compare", help="Compare saved BM25/dense evaluation artifacts")
     compare.add_argument("--bm25", type=Path, default=Path("results/scifact_bm25_test.json"))
     compare.add_argument("--dense", type=Path, default=Path("results/scifact_dense_test.json"))
+    compare.add_argument("--hybrid", type=Path, help="Include a third hybrid report")
     compare.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     compare.add_argument("--output", type=Path, default=Path("results/scifact_comparison.json"))
+    for name in ("search-hybrid", "evaluate-hybrid"):
+        command = commands.add_parser(name, help=name.replace("-", " "))
+        command.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
+        command.add_argument("--cache-dir", type=Path, default=Path("data/dense"))
+        if name == "search-hybrid":
+            command.add_argument("query")
+            command.add_argument("--top-k", type=int, default=5)
+        else:
+            command.add_argument("--output", type=Path, default=Path("results/scifact_hybrid_test.json"))
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     try:
         if args.command == "download":
             download_scifact(args.data_dir)
+            return
+        if args.command in ("search-hybrid", "evaluate-hybrid"):
+            _run_hybrid(args)
             return
         if args.command in ("prepare-dense", "search-dense"):
             _run_dense_search_or_prepare(args)
@@ -119,9 +168,9 @@ def main() -> None:
             _run_dense_evaluation(args)
             return
         if args.command == "evaluate":
+            _check_report_output(args.output)
             report = evaluate_scifact(args.data_dir)
-            args.output.parent.mkdir(parents=True, exist_ok=True)
-            args.output.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+            _save_report(args.output, report)
             print(f"SciFact test: {report['counts']['evaluated_queries']} queries")
             for name, value in report["metrics"].items():
                 print(f"{name}: {value:.6f}")

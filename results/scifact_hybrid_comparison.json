@@ -1,0 +1,211 @@
+{
+  "dataset": "BEIR SciFact",
+  "split": "test",
+  "evaluated_queries": 300,
+  "artifact_sha256": {
+    "bm25": "54c9fe04580db80d5dce11559ac68fffd6225353490ccdce4a5c268df189c1ca",
+    "dense": "3b08270b868918c99fc021d1fcf9831f522515af78e203ea5db74b3e1c17f4e9",
+    "hybrid": "dc1b82e1c0b5c08935f35373bc8b90b04072627dee6fe2eab32a9920e2418365"
+  },
+  "metrics": {
+    "Recall@5": {
+      "bm25": 0.7092777777777778,
+      "dense": 0.7311111111111112,
+      "hybrid": 0.7551666666666667,
+      "hybrid_minus_bm25": 0.04588888888888887,
+      "hybrid_minus_dense": 0.024055555555555497
+    },
+    "Recall@10": {
+      "bm25": 0.7746666666666667,
+      "dense": 0.8062222222222223,
+      "hybrid": 0.8078888888888889,
+      "hybrid_minus_bm25": 0.03322222222222215,
+      "hybrid_minus_dense": 0.0016666666666665941
+    },
+    "MRR@10": {
+      "bm25": 0.6215357142857143,
+      "dense": 0.5978783068783069,
+      "hybrid": 0.6430396825396826,
+      "hybrid_minus_bm25": 0.021503968253968275,
+      "hybrid_minus_dense": 0.04516137566137568
+    },
+    "nDCG@10": {
+      "bm25": 0.6535477437905298,
+      "dense": 0.6452938732165673,
+      "hybrid": 0.6802616197895336,
+      "hybrid_minus_bm25": 0.026713875999003767,
+      "hybrid_minus_dense": 0.03496774657296631
+    }
+  },
+  "query_latency_ms": {
+    "bm25": 36.971870999938496,
+    "dense": 34.207300328028694,
+    "hybrid": 93.15474900261809
+  },
+  "hybrid_settings": {
+    "rrf_k": 60,
+    "candidate_depth_documents_per_retriever": 100,
+    "retriever_weights": {
+      "bm25": 1,
+      "dense": 1
+    }
+  },
+  "timing_caveat": "Separate sequential local runs, not a controlled hardware benchmark. Hybrid includes both retrieval paths and fusion; setup is excluded.",
+  "example_selection": "First numeric query ID per category: hybrid hit with component miss; hybrid rank better than both hits; hybrid miss despite component hit",
+  "examples": [
+    {
+      "category": "hybrid_miss_component_hit",
+      "query_id": "1",
+      "query": "0-dimensional biomaterials show inductive properties.",
+      "relevant_document_ids": [
+        "31715818"
+      ],
+      "first_relevant_ranks": {
+        "bm25": null,
+        "dense": 5,
+        "hybrid": null
+      },
+      "document_ids": {
+        "bm25": [
+          "43385013",
+          "10931595",
+          "10608397",
+          "40212412",
+          "24998637",
+          "10906636",
+          "24660385",
+          "27049238",
+          "803312",
+          "12824568"
+        ],
+        "dense": [
+          "29638116",
+          "4346436",
+          "3874000",
+          "10786948",
+          "31715818",
+          "17388232",
+          "86129154",
+          "25404036",
+          "2060137",
+          "927561"
+        ],
+        "hybrid": [
+          "25404036",
+          "803312",
+          "10607877",
+          "43385013",
+          "40212412",
+          "6863070",
+          "3770726",
+          "58050905",
+          "29638116",
+          "10931595"
+        ]
+      }
+    },
+    {
+      "category": "hybrid_hit_component_miss",
+      "query_id": "70",
+      "query": "Activation of PPM1D suppresses p53 function.",
+      "relevant_document_ids": [
+        "4414547",
+        "5956380"
+      ],
+      "first_relevant_ranks": {
+        "bm25": 1,
+        "dense": null,
+        "hybrid": 2
+      },
+      "document_ids": {
+        "bm25": [
+          "5956380",
+          "4414547",
+          "24721866",
+          "23985464",
+          "21307488",
+          "5254463",
+          "7225911",
+          "43880096",
+          "52095986",
+          "7465900"
+        ],
+        "dense": [
+          "9483851",
+          "43880096",
+          "27949347",
+          "11903247",
+          "6896063",
+          "9169645",
+          "28107602",
+          "31624828",
+          "6670101",
+          "21557055"
+        ],
+        "hybrid": [
+          "43880096",
+          "4414547",
+          "11903247",
+          "23985464",
+          "5956380",
+          "9169645",
+          "21307488",
+          "6896063",
+          "7225911",
+          "7465900"
+        ]
+      }
+    },
+    {
+      "category": "hybrid_improves_both_first_hit_ranks",
+      "query_id": "75",
+      "query": "Active H. pylori urease has a polymeric structure that compromises two subunits, UreA and UreB.",
+      "relevant_document_ids": [
+        "4387784"
+      ],
+      "first_relevant_ranks": {
+        "bm25": 2,
+        "dense": 3,
+        "hybrid": 1
+      },
+      "document_ids": {
+        "bm25": [
+          "13965483",
+          "4387784",
+          "2837758",
+          "25657127",
+          "26488879",
+          "22703082",
+          "39550665",
+          "20330519",
+          "8654183",
+          "29367554"
+        ],
+        "dense": [
+          "37768883",
+          "38805486",
+          "4387784",
+          "36233757",
+          "29214508",
+          "25657127",
+          "13965483",
+          "2890952",
+          "44947611",
+          "2099400"
+        ],
+        "hybrid": [
+          "4387784",
+          "13965483",
+          "25657127",
+          "37768883",
+          "36233757",
+          "26488879",
+          "38805486",
+          "29367554",
+          "29214508",
+          "2837758"
+        ]
+      }
+    }
+  ]
+}

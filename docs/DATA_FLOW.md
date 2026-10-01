@@ -19,7 +19,7 @@ Search queries come directly from CLI input; relevance judgments never influence
 4. `ranked_document_ids` walks chunk results in their existing order, skipping already-seen parents, until it has ten unique documents or exhausts matches. Chunk ranks 1, 2, 3 for parents A, A, B become document ranks 1, 2 for A, B. It does not sum chunk scores or rerank documents.
 5. Each document ranking is compared with that query's provided qrels. Missing/unjudged documents have gain zero. Per-query Recall@5, Recall@10, reciprocal rank@10, and nDCG@10 are computed, including zero-score queries.
 6. Each metric is averaged equally across all evaluated queries. This macro mean is distinct from pooling retrieved/relevant counts across queries.
-7. The CLI writes `results/scifact_bm25_test.json` and prints a concise summary. The JSON contains settings, counts, input/source SHA-256 values, environment, aggregate metrics, top document IDs and metrics per query, and timings. No document bodies or query text are copied into the report.
+7. The CLI writes a report and prints a concise summary. The original `results/scifact_bm25_test.json` is frozen; reruns require another `--output` path. The JSON contains settings, counts, input/source SHA-256 values, environment, aggregate metrics, top document IDs and metrics per query, and timings. No document bodies or query text are copied into the report.
 
 Per-query latency measures search plus deduplication with an already-built index. Total evaluation time includes loading, validation, index construction, retrieval, metrics, and report assembly, but excludes JSON serialization/writing and terminal output. Timestamps/timings vary between runs; unchanged inputs/code produce deterministic rankings and quality metrics.
 
@@ -35,3 +35,15 @@ Per-query latency measures search plus deduplication with an already-built index
 8. `compare` reads both reports, checks input hashes/counts, chunking, query IDs, metric policies, and aggregate consistency, then writes `results/scifact_comparison.json`. It selects the first numeric query ID for each method having a top-10 relevant hit when the other method has none. Queries come from the evaluated query file.
 
 Online dense timing includes one query encoding, exact similarity calculation/sorting, full result construction, and document deduplication. It excludes model loading and index preparation. Cache hits avoid repeated corpus encoding but still incur model loading and cache validation. The report retains the original corpus encoding cost rather than presenting a cache hit as free preparation.
+
+## Hybrid flow
+
+1. Load the unchanged corpus/chunks, pinned encoder, and validated embedding cache. Build the existing BM25 and dense indexes over identical ordered chunks once per evaluation.
+2. For each query, run BM25 and dense sequentially, requesting complete chunk rankings (all positive matches for BM25). A limit of 100 chunks would not guarantee 100 different documents.
+3. `document_candidates` calls the existing parent deduplication, retains up to 100 unique documents per retriever, and preserves each parent's first/best chunk. Reassign consecutive document ranks: chunks A, A, B become documents A at rank 1, B at rank 2.
+4. For each candidate document, sum `1 / (60 + document_rank)` from each retriever where it appears. A missing candidate contributes zero; multiple chunks never cast extra votes. Raw BM25/cosine scores remain passage information only.
+5. Sort the candidate union by descending RRF score, then ascending document ID for exact ties. Return the final top-k unique documents, carrying separate BM25/dense representative passages when available.
+6. `evaluate_hybrid_scifact` evaluates the same 300 sorted test-qrels queries using the unchanged metric functions and macro means. It saves top-ten IDs plus component ranks/chunk IDs/RRF scores in `results/scifact_hybrid_test.json` without corpus bodies.
+7. `compare --hybrid` checks the three artifacts, computes differences and latency from stored values, and selects the first numeric query ID in each defined example category. It does not retrieve again or adjust settings.
+
+Online hybrid timing includes both retrieval paths, query encoding, document extraction, fusion, and final ranking. Model loading, cache validation, and index construction are separate preparation costs; cached corpus encoding is not repeated. The 100-document candidate cutoff precedes final top-10 selection, so candidates beyond it cannot receive that retriever's vote.

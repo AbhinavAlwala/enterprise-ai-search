@@ -2,7 +2,7 @@
 
 **What is information retrieval, and what is implemented here?**
 
-Information retrieval selects and ranks stored content for a user's information need expressed as a query. Here a local CLI ranks SciFact chunks using lexical BM25 or dense cosine similarity. It does not generate answers or verify claims.
+Information retrieval selects and ranks stored content for a user's information need expressed as a query. Here a local CLI ranks SciFact chunks using lexical BM25 or dense cosine similarity, and combines their parent-document rankings with RRF. It does not generate answers or verify claims.
 
 **How does a document differ from a chunk? Why chunk?**
 
@@ -91,3 +91,31 @@ Model truncation may drop chunk tails. The embedding model is general-purpose an
 **What did this actual comparison show?**
 
 Dense improved recall at both cutoffs, while BM25 retained higher MRR and nDCG. This means finding more relevant documents within ten did not imply placing the first/all relevant documents earlier. Query 1 is a measured dense-only top-ten hit; query 70 is a BM25-only hit. The exact query text, document ranks, and metric differences come from the generated comparison artifact. This is evidence about this fixed experiment, not a reason to tune on test judgments.
+
+**Why combine BM25 and dense retrieval? Why not add their scores?**
+
+They expose different signals and measured failures: shared terminology versus learned semantic similarity. BM25 and cosine have different scales and interpretations, so their raw sum would have an arbitrary balance. Rank fusion uses ordering without assuming comparable score units.
+
+**Explain our RRF calculation with an example.**
+
+Each document receives `1/(60 + rank)` from each candidate list where it occurs. Rank 1 in both gives `2/61`; rank 1 in only one gives `1/61`. Agreement is rewarded and rank advantages are softened. Missing means zero contribution. RRF scores are not probabilities; k=60 and equal weights are fixed, not tuned.
+
+**Why fuse documents instead of chunks? Which passage is retained?**
+
+Qrels refer to parent documents. Overlapping chunks should not give one source multiple votes. Each retriever's first chunk is the parent's representative, then parents receive compact ranks. BM25 and dense may retain different passages; both are included when available.
+
+**What is candidate generation versus final ranking?**
+
+Each component supplies at most 100 unique documents; RRF sorts their union and selects final top-k (ten for evaluation). Only 100 chunks could yield far fewer parents, so we first retrieve complete chunk rankings. The document cutoff was chosen before evaluation and can still exclude useful documents.
+
+**Trace hybrid search and explain deterministic ties.**
+
+`HybridIndex.search` calls existing BM25/dense searches, `document_candidates` deduplicates parents and retains passages, and `reciprocal_rank_fusion` sums rank contributions. Descending RRF score then ascending document ID determines final order. Component ties still follow chunk ID. No labels or model tuning enter this flow.
+
+**What did the three-way experiment show, and where did hybrid fail?**
+
+All four hybrid quality means improved over both baselines in this run, while online latency increased. Query 75's first relevant hit improved from ranks 2/3 to 1. Query 1's dense rank-5 hit fell outside hybrid's top ten. RRF agreement/candidate cutoffs can demote single-source hits; mean improvement is not universal improvement.
+
+**What should you understand before Milestone 5?**
+
+Understand lexical/semantic complementarity; incompatible raw-score scales; reciprocal-rank contributions and k; chunk-to-document deduplication and representatives; candidate depth versus final top-k; deterministic ties; recall versus early-rank metrics; and online latency versus preparation costs. Explain each using this code and its executed reports.
