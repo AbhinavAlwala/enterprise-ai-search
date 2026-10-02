@@ -2,7 +2,7 @@
 
 **What is information retrieval, and what is implemented here?**
 
-Information retrieval selects and ranks stored content for a user's information need expressed as a query. Here a local CLI ranks SciFact chunks using lexical BM25 or dense cosine similarity, combines document rankings with RRF, and reranks candidates. A separate RAG layer can request answers from a configured generator; no real endpoint was available during M6, and claim verification is not implemented.
+Information retrieval selects and ranks stored content for a user's information need expressed as a query. Here a local CLI ranks SciFact chunks using lexical BM25 or dense cosine similarity, combines document rankings with RRF, and reranks candidates. A separate RAG layer can request answers from a configured generator; M7 adds bounded SciFact claim verification through the existing local qwen2.5:7b endpoint.
 
 The current pipeline can also rerank the top 50 hybrid documents with a cross-encoder over existing representative passages.
 
@@ -180,4 +180,26 @@ The prompt supplies an explicit abstention sentence. The model decides from the 
 
 **Trace M6 and explain what has actually been verified.**
 
-CLI configuration -> existing corpus/cache/models -> hybrid 50 -> reranked five winning passages -> numbered context + one prompt -> configured generator -> numeric reference validation -> answer/provenance/timing JSON. Offline tests exercise the complete composition and HTTP contract with fakes/mocks. A real endpoint and generated answer were not verified; frozen retrieval metrics do not measure answer quality.
+CLI configuration -> existing corpus/cache/models -> hybrid 50 -> reranked five winning passages -> numbered context + one prompt -> configured generator -> numeric reference validation -> answer/provenance/timing JSON. Offline tests exercise the complete composition and HTTP contract with fakes/mocks. M6 originally used fakes/mocks; a subsequent local qwen2.5:7b smoke test demonstrated that valid references can accompany misinterpreted evidence. Frozen retrieval metrics do not measure answer quality.
+
+## M7 questions
+
+**Why not score free-form answers directly?** Different phrasing and multiple assertions require gold reference facts and a rubric. This benchmark scores one explicit SciFact stance, not all explanation facts.
+
+**What do SUPPORT, CONTRADICT, and ABSTAIN mean?** The supplied evidence supports the claim, contradicts it, or is insufficient/ambiguous. ABSTAIN is a model action, not an invented gold label for empty metadata.
+
+**Why are qrels insufficient for stance?** Relevance identifies useful documents; both supporting and contradicting documents can be relevant. Stance comes from query metadata.
+
+**How do coverage and accuracy interact?** Coverage is the fraction of valid non-abstained predictions. Conditional accuracy may look high when the system answers very few claims, so report coverage and overall accuracy together. Parsing/HTTP failures are not abstentions.
+
+**Accuracy versus macro F1?** Accuracy counts each claim equally. Macro F1 averages the two class F1 scores equally, making minority-class performance visible. Abstentions/failures reduce class recall here.
+
+**What does valid citation syntax establish?** The marker refers to supplied evidence. It does not establish that the passage entails the generated assertion.
+
+**Can document-presence diagnostics separate failures?** They help inspect retrieval and reasoning, but a retrieved parent may have the wrong passage. Association is not causality.
+
+**Trace M7.** Explicit test metadata -> frozen hybrid 50/reranked five -> fixed prompt -> local HTTP generation -> strict verdict parse/reference check -> checkpoint -> classification metrics and document-presence diagnostics.
+
+**Main limitations?** Only 188 annotated scientific claims; no gold abstentions, sentence alignment, general-answer reference facts, or explanation entailment scoring. A correct verdict can accompany an unsupported explanation.
+
+**What did the real M7 smoke establish?** Retrieval and the HTTP client executed for five claims, but every response violated JSON syntax by leaving the verdict unquoted. Strict parsing recorded five failures, not inferred predictions. The full-run estimate exceeded 90 minutes, so there are no 188-claim quality results.

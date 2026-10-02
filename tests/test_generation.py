@@ -76,3 +76,20 @@ def test_request_errors_do_not_echo_server_body_credentials_or_url(monkeypatch: 
     with pytest.raises(ValueError, match="Generation") as failure:
         HttpGenerator(GenerationConfig("http://localhost/v1", "model", "fixture-secret")).generate([])
     assert "fixture-secret" not in str(failure.value)
+
+
+def test_verification_generation_settings_in_http_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_open(request: object, timeout: float) -> io.BytesIO:
+        payload = json.loads(request.data)
+        assert payload["temperature"] == 0 and payload["max_tokens"] == 256
+        assert timeout == 180 and payload["stream"] is False
+        return io.BytesIO(b'{"choices":[{"message":{"content":"structured response"}}]}')
+    monkeypatch.setattr(generation, "urlopen", fake_open)
+    config = GenerationConfig("http://localhost/v1", "qwen2.5:7b", temperature=0, max_output_tokens=256, timeout_seconds=180)
+    assert HttpGenerator(config).generate([]) == "structured response"
+
+
+@pytest.mark.parametrize("temperature", [float("nan"), float("inf"), -1, 3])
+def test_invalid_temperature_rejected(temperature: float) -> None:
+    with pytest.raises(ValueError, match="temperature"):
+        GenerationConfig("http://localhost/v1", "model", temperature=temperature)

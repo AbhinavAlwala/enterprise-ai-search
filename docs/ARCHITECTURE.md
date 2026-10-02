@@ -48,4 +48,10 @@ BM25 and HTTP generation use the standard library. Dense retrieval needs NumPy, 
 
 Reranking reuses the installed sentence-transformers `CrossEncoder` API without new dependencies. Its weights live in `data/reranker/models/`. Pair scoring runs online; passage representations cannot be cached independently of the query as dense embeddings can. Frozen retriever modules remain unchanged.
 
-Generation runs in one non-streaming request after retrieval; it cannot change candidate selection or request more passages. No real endpoint/model was configured during M6, so generation integration is verified with fakes/mocked HTTP only. Answer evaluation is not implemented.
+Generation runs in one non-streaming request after retrieval; it cannot change candidate selection or request more passages. The M6 implementation was tested with fakes/mocked HTTP; M7 adds a bounded real-model stance evaluation with separate artifacts.
+
+## Bounded claim verification (M7)
+
+`evaluate-claims` uses the unchanged M6 retrieval path and HTTP client with a separate fixed verification prompt. `dataset.load_stance_claims` exposes explicit test metadata without changing `load_queries`. `claim_verification.py` constructs messages and validates exact JSON verdicts and source references. `claim_evaluation.py` selects the 188 annotated test claims, prepares retrieval once, computes metrics, and saves resumable JSON after every prediction.
+
+Gold labels and annotated document IDs are evaluator inputs only; the generator receives the claim and five winning passages. No sentence-level scoring, external judge, retrieval tuning, or new dependency is involved.

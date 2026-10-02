@@ -5,6 +5,7 @@ import json
 import logging
 import shutil
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.request import urlopen
 
@@ -89,6 +90,56 @@ def load_corpus(path: Path) -> list[Document]:
 def load_queries(path: Path) -> dict[str, str]:
     # BEIR query JSONL shares the corpus loader's ID/text schema and validation.
     return {record.document_id: record.text for record in load_corpus(path)}
+
+
+@dataclass(frozen=True)
+class StanceClaim:
+    query_id: str
+    text: str
+    gold_stance: str
+    gold_document_ids: tuple[str, ...]
+
+
+def load_stance_claims(path: Path, query_ids: set[str]) -> list[StanceClaim]:
+    """Read explicit stance annotations for selected IDs; empty metadata is unlabeled."""
+    queries = load_queries(path)
+    if query_ids - queries.keys():
+        raise ValueError("Stance selection references unknown query IDs")
+    claims = []
+    opener = gzip.open if path.suffix == ".gz" else open
+    with opener(path, "rt", encoding="utf-8") as stream:
+        for line_number, line in enumerate(stream, 1):
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            query_id = record["_id"]
+            if query_id not in query_ids:
+                continue
+            metadata = record.get("metadata", {})
+            try:
+                if not isinstance(metadata, dict):
+                    raise ValueError("Stance metadata must be a document mapping")
+                if not metadata:
+                    continue
+                labels = set()
+                for document_id, rationales in metadata.items():
+                    if not isinstance(document_id, str) or not document_id.strip():
+                        raise ValueError("Gold document IDs must be nonempty strings")
+                    if not isinstance(rationales, list) or not rationales:
+                        raise ValueError("Annotated documents require rationales")
+                    for rationale in rationales:
+                        if not isinstance(rationale, dict) or rationale.get("label") not in ("SUPPORT", "CONTRADICT"):
+                            raise ValueError("Unknown gold stance")
+                        sentences = rationale.get("sentences")
+                        if not isinstance(sentences, list) or not sentences or any(type(i) is not int or i < 0 for i in sentences):
+                            raise ValueError("Rationale sentence indices must be nonnegative integers")
+                        labels.add(rationale["label"])
+                if len(labels) != 1:
+                    raise ValueError("Claim must have a consistent gold stance")
+            except ValueError as error:
+                raise ValueError(f"{path}:{line_number}: {error}") from error
+            claims.append(StanceClaim(query_id, queries[query_id], labels.pop(), tuple(sorted(metadata))))
+    return sorted(claims, key=lambda claim: claim.query_id)
 
 
 def load_qrels(path: Path) -> dict[str, dict[str, int]]:

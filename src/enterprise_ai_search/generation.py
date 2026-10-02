@@ -19,6 +19,7 @@ class GenerationConfig:
     api_key: str = field(default="", repr=False)
     timeout_seconds: float = 60.0
     max_output_tokens: int = 512
+    temperature: float | None = None
 
     def __post_init__(self) -> None:
         try:
@@ -35,6 +36,8 @@ class GenerationConfig:
             raise ValueError("GENERATION_API_KEY must contain printable ASCII characters")
         if not math.isfinite(self.timeout_seconds) or self.timeout_seconds <= 0 or self.max_output_tokens <= 0:
             raise ValueError("Generation timeout and output token limit must be positive")
+        if self.temperature is not None and (not math.isfinite(self.temperature) or not 0 <= self.temperature <= 2):
+            raise ValueError("Generation temperature must be finite and between 0 and 2")
 
     @classmethod
     def from_env(cls) -> "GenerationConfig":
@@ -55,6 +58,8 @@ class HttpGenerator:
             "model": self.config.model, "messages": messages, "stream": False,
             "max_tokens": self.config.max_output_tokens,
         }
+        if self.config.temperature is not None:
+            payload["temperature"] = self.config.temperature
         headers = {"Content-Type": "application/json"}
         if self.config.api_key:
             headers["Authorization"] = "Bearer " + self.config.api_key

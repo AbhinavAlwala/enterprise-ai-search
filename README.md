@@ -2,7 +2,7 @@
 
 A retrieval engineering project built in tested milestones, with explicit algorithms, reproducible evaluation, and documented trade-offs.
 
-**Status: Milestone 6 implemented.** A local CLI provides BM25, exact dense search, document RRF, cross-encoder reranking, and a thin retrieval-augmented generation (RAG) layer with source-reference validation. Retrieval is evaluated on the same 300-query SciFact test split. RAG and the HTTP boundary are tested offline with fakes; no real generation endpoint is configured or verified yet. Frozen retrieval source and artifacts are preserved.
+**Status: Milestone 7 implemented; full evaluation deferred by the runtime gate.** A local CLI provides BM25, exact dense search, document RRF, cross-encoder reranking, and a thin retrieval-augmented generation (RAG) layer with source-reference validation. Retrieval is evaluated on the same 300-query SciFact test split. RAG and the HTTP boundary are tested offline with fakes. A separate bounded SciFact stance evaluation adds explicit SUPPORT/CONTRADICT/ABSTAIN output and resumable reports. Frozen retrieval source and artifacts are preserved.
 
 - Verified, revision-pinned [BEIR SciFact](https://github.com/beir-cellar/beir/wiki/Datasets-available) ingestion and deterministic overlapping chunks.
 - Explicit BM25 and revision-pinned `sentence-transformers/all-MiniLM-L6-v2` with cached 384-dimensional CPU embeddings.
@@ -60,7 +60,7 @@ $env:GENERATION_MODEL = "your-served-model"
 uv run --locked --offline --cache-dir .uv-cache enterprise-search ask "What does the retrieved evidence say about PPM1D and p53?"
 ```
 
-The URL/model above are configuration examples, not an available service or executed generated answer. `ask` prints JSON containing the answer, selected passages, citation-to-document/chunk mappings, validation status, and separate preparation/retrieval/generation/total timings. The client uses standard-library HTTP with optional bearer authentication, a 60-second timeout, and `max_tokens=512`. Generation requires endpoint connectivity even when package/model caches are offline. No local LLM is downloaded by this project.
+The URL/model above are configuration examples. M7 uses the existing local qwen2.5:7b service through its OpenAI-compatible endpoint. `ask` prints JSON containing the answer, selected passages, citation-to-document/chunk mappings, validation status, and separate preparation/retrieval/generation/total timings. The client uses standard-library HTTP with optional bearer authentication, a 60-second timeout, and `max_tokens=512`. Generation requires endpoint connectivity even when package/model caches are offline. No local LLM is downloaded by this project.
 
 ## Engineering documentation
 
@@ -74,4 +74,10 @@ The URL/model above are configuration examples, not an available service or exec
 
 The reranker cannot recover documents outside the 50 candidates, and only sees existing representative passages. Max passage aggregation can amplify false positives; some judged documents move downward despite better mean metrics. BM25, cosine, RRF, and cross-encoder scores are ranking signals, not probabilities or factual verification.
 
-The dense encoder truncates 3,478 of 8,778 unchanged chunks. Cross-encoder pairs share a 512-token limit and may also be truncated; that count is not audited. Qrels can be incomplete. Generation sees only five passages; their combined prompt must fit the configured model's context window. Citation validation checks references, not whether claims are supported or true. Answer quality and real endpoint compatibility remain unmeasured. No server API or production deployment is implemented.
+The dense encoder truncates 3,478 of 8,778 unchanged chunks. Cross-encoder pairs share a 512-token limit and may also be truncated; that count is not audited. Qrels can be incomplete. Generation sees only five passages; their combined prompt must fit the configured model's context window. Citation validation checks references, not whether claims are supported or true. General free-form answer correctness and explanation entailment remain unmeasured. The M7 benchmark measures only explicit SciFact stances. No server API or production deployment is implemented.
+
+## Bounded claim-verification evaluation
+
+`evaluate-claims` evaluates only the 188 test claims with explicit metadata stances (124 SUPPORT, 64 CONTRADICT), using the unchanged top-five reranked evidence. It validates structured verdicts, records abstentions/failures separately, and checkpoints each prediction. It does not score general RAG correctness or sentence-level citation support. Run the five-claim smoke first; a full run is refused when its estimated duration exceeds 90 minutes. See [execution flow](docs/CODE_WALKTHROUGH.md) and [metric definitions](docs/DESIGN_DECISIONS.md).
+
+The [real five-claim smoke artifact](results/scifact_claim_verification_smoke.json) preserves raw model outputs and failures. Its runtime estimate exceeded the full-run limit, so no 188-claim benchmark results are reported.

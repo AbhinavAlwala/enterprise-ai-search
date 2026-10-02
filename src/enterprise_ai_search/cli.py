@@ -1,7 +1,7 @@
 import argparse
 import json
 import logging
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from time import perf_counter
 from urllib.error import URLError
@@ -177,6 +177,34 @@ def _run_ask(args: argparse.Namespace) -> None:
     print(json.dumps(output, indent=2, ensure_ascii=False, allow_nan=False))
 
 
+def _run_claim_evaluation(args: argparse.Namespace) -> None:
+    from enterprise_ai_search.claim_evaluation import evaluation_identity, load_test_claims, prepare_retrieval, run_evaluation
+    from enterprise_ai_search.generation import GenerationConfig, HttpGenerator
+
+    _check_report_output(args.output)
+    config = replace(GenerationConfig.from_env(), temperature=0.0, max_output_tokens=256, timeout_seconds=180.0)
+    if config.model != "qwen2.5:7b":
+        raise ValueError("M7 uses the existing qwen2.5:7b model")
+    if args.resume and args.resume_from is not None:
+        raise ValueError("Use either --resume or --resume-from")
+    resume_from = args.output if args.resume else args.resume_from
+    if args.output.exists() and (resume_from is None or resume_from.resolve() != args.output.resolve()):
+        raise ValueError("Output exists; choose a new path or --resume")
+    if not args.smoke and resume_from is None:
+        raise ValueError("First run --smoke, then use --resume-from with its artifact")
+    claims = load_test_claims(args.data_dir)
+    index, reranker, preparation = prepare_retrieval(args.data_dir, args.cache_dir, args.model_cache_dir)
+    corpus_ids = {chunk.document_id for chunk in index.bm25.chunks}
+    if {doc for claim in claims for doc in claim.gold_document_ids} - corpus_ids:
+        raise ValueError("Gold annotations reference unknown corpus documents")
+    identity = evaluation_identity(args.data_dir, args.cache_dir, claims, config)
+    report = run_evaluation(claims, index, reranker, HttpGenerator(config), args.output, identity, preparation,
+                            smoke=args.smoke, resume_from=resume_from)
+    print(json.dumps({"status": report["status"], "metrics": report["metrics"], "performance": report["performance"],
+                      "estimated_full_runtime_minutes": report.get("estimated_full_runtime_seconds", 0) / 60,
+                      "output": str(args.output)}, indent=2, allow_nan=False))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="SciFact lexical, dense, hybrid, and reranked retrieval")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -234,9 +262,20 @@ def main() -> None:
     ask_command.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     ask_command.add_argument("--cache-dir", type=Path, default=Path("data/dense"))
     ask_command.add_argument("--model-cache-dir", type=Path, default=Path("data/reranker/models"))
+    claims_command = commands.add_parser("evaluate-claims", help="Evaluate explicit SciFact test stances using fixed top-five RAG evidence")
+    claims_command.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
+    claims_command.add_argument("--cache-dir", type=Path, default=Path("data/dense"))
+    claims_command.add_argument("--model-cache-dir", type=Path, default=Path("data/reranker/models"))
+    claims_command.add_argument("--output", type=Path, required=True)
+    claims_command.add_argument("--smoke", action="store_true", help="Evaluate the first five annotated claims before estimating full runtime")
+    claims_command.add_argument("--resume", action="store_true", help="Continue the existing output checkpoint")
+    claims_command.add_argument("--resume-from", type=Path, help="Reuse compatible predictions from another checkpoint")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     try:
+        if args.command == "evaluate-claims":
+            _run_claim_evaluation(args)
+            return
         if args.command == "ask":
             _run_ask(args)
             return

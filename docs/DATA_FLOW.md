@@ -71,3 +71,13 @@ Online time covers hybrid retrieval, pair preparation, inference, passage aggreg
 7. The CLI prints answer/evidence/validation/timing JSON. No previous result artifact is written. Preparation and total end-to-end time include CLI model/cache/index setup; online time excludes setup but includes context construction and citation checking. Retrieval/reranking and generation-request time are measured separately. Frozen retrieval benchmarks remain unchanged.
 
 Context is deterministic for an unchanged reranked list; generated text need not be. The configured model must fit the complete five-passage prompt plus output within its context window. No model-specific token counting or passage trimming is implemented.
+
+## M7 evaluation flow
+
+1. Load test qrels only to select query IDs. Read their query metadata; exclude empty metadata and reject inconsistent/unknown stance labels. Validate the frozen subset: 188 claims, 124 SUPPORT and 64 CONTRADICT. Training annotations do not guide the prompt.
+2. Prepare existing corpus/chunks, cached dense embeddings, hybrid index, and reranker once. For each claim, retrieve hybrid top 50 and supply the same five winning passages as M6, without gold labels or extra passage searches.
+3. Send the fixed claim-verification prompt through the existing HTTP client: qwen2.5:7b, temperature 0, max_tokens 256, timeout 180 seconds, sequential requests, no retries. The endpoint/model still come from environment configuration.
+4. Parse exactly verdict/explanation JSON. Keep SUPPORT, CONTRADICT, and ABSTAIN distinct from malformed output and HTTP failure. Validate explanation references independently, preserving parseable predictions with invalid citations.
+5. Record raw output, explanation, verdict, evidence text/IDs, citations, gold-document presence, and retrieval/generation/online timings. Atomically replace the checkpoint after each claim.
+6. Run five claims in sorted string-ID order first. Estimate preparation plus 188 times mean online duration; refuse a full run above 90 minutes. Resume compatible smoke predictions into a new full artifact, or continue an interrupted artifact with --resume.
+7. Score every completed claim, including failures; only a complete 188-claim artifact supplies benchmark results. Conditional gold-document diagnostics report association, not causality or sentence-level evidence coverage.

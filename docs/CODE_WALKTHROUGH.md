@@ -77,3 +77,24 @@ Execution: CLI -> existing chunks/cache/indexes -> hybrid top 50 -> distinct rep
 - `cli._run_ask`: checks configuration first, prepares existing models/index/cache, and adds preparation/total end-to-end timing to JSON output. Previous report writers now protect all seven frozen artifacts.
 
 Tests in `test_rag.py` use existing BM25/dense/hybrid/reranking functions with tiny vectors and fake models/generators, including the full CLI path. `test_generation.py` mocks HTTP to verify payload/authentication, parsing, timeout/configuration errors, and secret-safe failures. No test calls a real LLM, downloads models, or needs network access.
+
+## M7 code
+
+- `dataset.StanceClaim` and `load_stance_claims`: expose claim text, one validated gold stance, and annotated source document IDs. Empty metadata stays unlabeled. Original sentence indices are validated but not aligned or scored.
+- `claim_verification.VERIFICATION_PROMPT` and `build_verification_messages`: one prompt and deterministic numbered context; no gold information enters messages.
+- `parse_verdict`: strict JSON schema, allowed verdicts, nonempty explanation, duplicate-field rejection, and existing citation validation. Markdown fences/free-form responses are not repaired.
+- `verify_claim`: unchanged hybrid/reranker composition, one generator request, separate parse/generation/reference statuses, and timings.
+- `claim_evaluation.summarize_predictions`: explicit accuracy, class precision/recall/F1, abstention/coverage, confusion matrix, and document-presence diagnostics.
+- `load_test_claims`, `prepare_retrieval`, `evaluation_identity`: fixed subset validation, one model/index setup, and input/code/settings fingerprints.
+- `save_checkpoint`, `load_checkpoint`, `run_evaluation`: atomic report replacement, record checksum validation, compatible resume, smoke gate, and per-claim progress logging. Completed failures are retained rather than retried.
+
+Commands (after setting the existing local endpoint/model and HF_HUB_OFFLINE=1):
+
+```powershell
+uv run --locked --offline --cache-dir .uv-cache enterprise-search evaluate-claims --smoke --output results/scifact_claim_verification_smoke.json
+uv run --locked --offline --cache-dir .uv-cache enterprise-search evaluate-claims --resume-from results/scifact_claim_verification_smoke.json --output results/scifact_claim_verification_test.json
+# Continue an interrupted full run with the same source, inputs, and settings:
+uv run --locked --offline --cache-dir .uv-cache enterprise-search evaluate-claims --resume --output results/scifact_claim_verification_test.json
+```
+
+Tests use fixture annotations, hand-calculated metrics, fake generation with real tiny retrieval indexes, mocked HTTP, and interruption/resume simulations. No unit test calls the real LLM.
