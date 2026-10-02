@@ -202,8 +202,14 @@ CLI configuration -> existing corpus/cache/models -> hybrid 50 -> reranked five 
 
 **Main limitations?** Only 188 annotated scientific claims; no gold abstentions, sentence alignment, general-answer reference facts, or explanation entailment scoring. A correct verdict can accompany an unsupported explanation.
 
-**What did the real M7 smoke establish?** Retrieval and the HTTP client executed for five claims, but every response violated JSON syntax by leaving the verdict unquoted. Strict parsing recorded five failures, not inferred predictions. The full-run estimate exceeded 90 minutes, so there are no 188-claim quality results.
+**What did the real M7 smoke establish?** Retrieval and the HTTP client executed for five claims, but every response violated JSON syntax by leaving the verdict unquoted. Strict parsing recorded five failures, not inferred predictions. That initial smoke exceeded the runtime gate; the subsequently completed full benchmark is documented below.
 
 **Why use constrained generation instead of repairing output?** M7.1 sends a JSON schema through the OpenAI-compatible response_format field to prevent serialization errors during generation. Strict parsing still rejects invalid output; schema compliance does not establish semantic correctness. The verdict instructions and retrieval remain unchanged.
 
 **Why structured citations?** A dedicated integer array separates source references from prose. Verification can accept an uncited ABSTAIN while requiring supplied sources for SUPPORT/CONTRADICT. Valid JSON, a valid verdict, and valid source references are separate checks; none proves evidence entailment.
+
+**What trade-off did the full M7 run measure?** qwen2.5:3b classified only 34/188 claims, getting 28 of those correct: 18.09% coverage and 82.35% non-abstained accuracy. Its 154 abstentions reduce overall accuracy to 14.89%; macro F1 is 0.188228. This is conservative bounded claim verification, not high general answer accuracy.
+
+**Which class was weakest?** CONTRADICT recall was 0.015625 (1/64), versus SUPPORT recall 0.217742 (27/124). The high conditional accuracy hides low coverage and poor contradiction detection.
+
+**Did reliable output prove grounding?** No. Parsing/request failures were zero and citation validity was 0.978723, but valid source numbers do not prove entailment. Gold documents appeared in 179/188 contexts; present/absent accuracy was 0.150838/0.111111. Parent-document presence is not sentence-level rationale coverage. Total recorded evaluation runtime was 4981.39 seconds.

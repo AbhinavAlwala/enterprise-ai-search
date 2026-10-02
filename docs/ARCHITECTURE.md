@@ -59,3 +59,5 @@ Gold labels and annotated document IDs are evaluator inputs only; the generator 
 M7.1 adds an optional JSON-schema `response_format` to the existing HTTP configuration, enabled only for claim verification. No SDK or parser repair is added; free-form `ask` remains unchanged.
 
 M7.3 keeps citations as a required integer array in verification output. Claim verification validates source membership and builds provenance separately from JSON/verdict validation; normal ask still uses the frozen inline-marker validator.
+
+The full 188-claim qwen2.5:3b benchmark is preserved in [scifact_claim_verification_test.json](../results/scifact_claim_verification_test.json). Its classification results are separate from retrieval metrics and do not measure general answer correctness. The runtime gate is restored to 90 minutes.

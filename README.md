@@ -2,7 +2,7 @@
 
 A retrieval engineering project built in tested milestones, with explicit algorithms, reproducible evaluation, and documented trade-offs.
 
-**Status: Milestone 7 implemented; full evaluation deferred by the runtime gate.** A local CLI provides BM25, exact dense search, document RRF, cross-encoder reranking, and a thin retrieval-augmented generation (RAG) layer with source-reference validation. Retrieval is evaluated on the same 300-query SciFact test split. RAG and the HTTP boundary are tested offline with fakes. A separate bounded SciFact stance evaluation adds explicit SUPPORT/CONTRADICT/ABSTAIN output and resumable reports. Frozen retrieval source and artifacts are preserved.
+**Status: Milestone 7 complete, including the full bounded SciFact claim-verification benchmark.** A local CLI provides BM25, exact dense search, document RRF, cross-encoder reranking, and a thin retrieval-augmented generation (RAG) layer with source-reference validation. Retrieval is evaluated on the same 300-query SciFact test split. RAG and the HTTP boundary are tested offline with fakes. A separate bounded SciFact stance evaluation adds explicit SUPPORT/CONTRADICT/ABSTAIN output and resumable reports. Frozen retrieval source and artifacts are preserved.
 
 - Verified, revision-pinned [BEIR SciFact](https://github.com/beir-cellar/beir/wiki/Datasets-available) ingestion and deterministic overlapping chunks.
 - Explicit BM25 and revision-pinned `sentence-transformers/all-MiniLM-L6-v2` with cached 384-dimensional CPU embeddings.
@@ -60,7 +60,7 @@ $env:GENERATION_MODEL = "your-served-model"
 uv run --locked --offline --cache-dir .uv-cache enterprise-search ask "What does the retrieved evidence say about PPM1D and p53?"
 ```
 
-The URL/model above are configuration examples. M7 uses the existing local qwen2.5:7b service through its OpenAI-compatible endpoint. `ask` prints JSON containing the answer, selected passages, citation-to-document/chunk mappings, validation status, and separate preparation/retrieval/generation/total timings. The client uses standard-library HTTP with optional bearer authentication, a 60-second timeout, and `max_tokens=512`. Generation requires endpoint connectivity even when package/model caches are offline. No local LLM is downloaded by this project.
+The URL/model above are configuration examples. The completed M7 benchmark used local qwen2.5:3b through its OpenAI-compatible endpoint. `ask` prints JSON containing the answer, selected passages, citation-to-document/chunk mappings, validation status, and separate preparation/retrieval/generation/total timings. The client uses standard-library HTTP with optional bearer authentication, a 60-second timeout, and `max_tokens=512`. Generation requires endpoint connectivity even when package/model caches are offline. No local LLM is downloaded by this project.
 
 ## Engineering documentation
 
@@ -80,4 +80,29 @@ The dense encoder truncates 3,478 of 8,778 unchanged chunks. Cross-encoder pairs
 
 `evaluate-claims` evaluates only the 188 test claims with explicit metadata stances (124 SUPPORT, 64 CONTRADICT), using the unchanged top-five reranked evidence. It validates structured verdicts, records abstentions/failures separately, and checkpoints each prediction. It does not score general RAG correctness or sentence-level citation support. Run the five-claim smoke first; a full run is refused when its estimated duration exceeds 90 minutes. See [execution flow](docs/CODE_WALKTHROUGH.md) and [metric definitions](docs/DESIGN_DECISIONS.md).
 
-The [real five-claim smoke artifact](results/scifact_claim_verification_smoke.json) preserves raw model outputs and failures. Its runtime estimate exceeded the full-run limit, so no 188-claim benchmark results are reported.
+The full [188-claim report](results/scifact_claim_verification_test.json) records the executed qwen2.5:3b benchmark: temperature 0, 128-token output limit, structured verdict/explanation/citations, and the unchanged top-five reranked passages. These results measure bounded SciFact claim verification, not general RAG or free-form answer accuracy.
+
+| Metric | Measured value |
+|---|---:|
+| Evaluated claims | 188 |
+| Overall accuracy | 0.148936 |
+| Non-abstained accuracy | 0.823529 |
+| Macro F1 | 0.188228 |
+| Abstention rate | 0.819149 |
+| Coverage | 0.180851 |
+| Parsing failure rate | 0.000000 |
+| Generation failure rate | 0.000000 |
+| Citation validation pass rate | 0.978723 |
+| Gold-document-present rate | 0.952128 |
+| Accuracy with gold document present | 0.150838 |
+| Accuracy with gold document absent | 0.111111 |
+| Total evaluation runtime (seconds) | 4981.39 |
+
+| Gold class | Precision | Recall | F1 |
+|---|---:|---:|---:|
+| SUPPORT | 0.843750 | 0.217742 | 0.346154 |
+| CONTRADICT | 0.500000 | 0.015625 | 0.030303 |
+
+The qwen2.5:3b generator was highly conservative: it issued SUPPORT/CONTRADICT verdicts for only 34 of 188 claims (about 18% coverage), with 28 correct among those 34 (about 82% non-abstained accuracy). It abstained on 154 claims, leaving overall accuracy at about 15% when abstentions count as incorrect. CONTRADICT recall was very low: only 1 of 64 contradicting claims received a correct CONTRADICT verdict. Citation validity checks supplied source references and does not imply evidence entailment or explanation correctness.
+
+The full run completed under an explicitly authorized temporary 100-minute runtime gate; the default 90-minute gate is restored. Earlier smoke artifacts are preserved.

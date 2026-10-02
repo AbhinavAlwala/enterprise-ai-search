@@ -91,10 +91,10 @@ Tests in `test_rag.py` use existing BM25/dense/hybrid/reranking functions with t
 Commands (after setting the existing local endpoint/model and HF_HUB_OFFLINE=1):
 
 ```powershell
-uv run --locked --offline --cache-dir .uv-cache enterprise-search evaluate-claims --smoke --output results/scifact_claim_verification_smoke.json
-uv run --locked --offline --cache-dir .uv-cache enterprise-search evaluate-claims --resume-from results/scifact_claim_verification_smoke.json --output results/scifact_claim_verification_test.json
+uv run --locked --offline --cache-dir .uv-cache enterprise-search evaluate-claims --smoke --output results/scifact_claim_verification_smoke_rerun.json
+uv run --locked --offline --cache-dir .uv-cache enterprise-search evaluate-claims --resume-from results/scifact_claim_verification_smoke_rerun.json --output results/scifact_claim_verification_rerun.json
 # Continue an interrupted full run with the same source, inputs, and settings:
-uv run --locked --offline --cache-dir .uv-cache enterprise-search evaluate-claims --resume --output results/scifact_claim_verification_test.json
+uv run --locked --offline --cache-dir .uv-cache enterprise-search evaluate-claims --resume --output results/scifact_claim_verification_rerun.json
 ```
 
 Tests use fixture annotations, hand-calculated metrics, fake generation with real tiny retrieval indexes, mocked HTTP, and interruption/resume simulations. No unit test calls the real LLM.
@@ -102,3 +102,5 @@ Tests use fixture annotations, hand-calculated metrics, fake generation with rea
 M7.1: `VERIFICATION_RESPONSE_FORMAT` defines the two required fields and verdict enum; `VERIFICATION_MAX_OUTPUT_TOKENS` fixes the claim cap at 128. The CLI enables these only for verification, and checkpoint identity includes the schema. The strict parser and fake-generator method signature are unchanged.
 
 M7.3: `validate_citation_array` checks integer types and source membership, deduplicates mappings in first-seen order, and applies verdict-specific empty-array rules. `VerdictParseError` carries parse/verdict stage information. Records expose `structured_parse_success`, `verdict_valid`, `citation_array_valid`, the raw array, and provenance independently. Existing fake-generator signatures and free-form ask are unchanged.
+
+The completed benchmark artifact is read-only historical evidence. Finalization recomputed its aggregate metrics from all 188 records and checked its record checksum and local gold annotations. Restoring the 90-minute gate changes the source fingerprint; preserve the artifact?s recorded execution identity rather than rewriting it to match current source. Use new output paths for future runs.

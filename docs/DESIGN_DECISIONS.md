@@ -168,7 +168,7 @@ The fixed prompt/settings are selected before real evaluation and are not tuned 
 
 Metric definitions: overall accuracy is correct/ALL completed claims, including abstentions and failures as incorrect. Non-abstained accuracy is correct/valid SUPPORT-or-CONTRADICT predictions (null if none). Class precision is TP/(TP+FP); recall is TP/(TP+FN), including abstentions/failures in FN; F1 is 2TP/(2TP+FP+FN). Undefined class precision/F1 is zero. Macro F1 weights the two classes equally, while accuracy weights individual claims.
 
-Coverage is valid SUPPORT/CONTRADICT predictions / all claims. Abstention, parsing failure, and generation failure have separate rates; their rates plus coverage sum to one. The 2x3 confusion matrix excludes failures, reported separately by gold class. Citation pass rate uses all claims as denominator, with an additional rate among parsed outputs. Existing validation requires at least one valid numeric citation and no unknown reference, even for ABSTAIN. This checks syntax/source existence only, not evidence entailment.
+Coverage is valid SUPPORT/CONTRADICT predictions / all claims. Abstention, parsing failure, and generation failure have separate rates; their rates plus coverage sum to one. The 2x3 confusion matrix excludes failures, reported separately by gold class. Citation pass rate uses all claims as denominator, with an additional rate among parsed outputs. Current verification validation uses the required citation array: asserted verdicts require at least one valid source; ABSTAIN permits an empty array. Provided numbers must reference supplied evidence. This checks source existence only, not evidence entailment.
 
 A gold-annotated document in context does not guarantee its winning passage contains the rationale. Present/absent accuracy therefore cannot identify retrieval versus reasoning failure causally. Original sentence arrays are absent, so we do not split flattened text to invent sentence alignment. SciFact's scientific claims and two gold classes are a narrow proxy for enterprise RAG, not a general correctness or safe-abstention benchmark.
 
@@ -189,3 +189,32 @@ The same five-claim M7.1 smoke produced five valid JSON outputs (two SUPPORT, th
 The 3b smoke parsed reliably but omitted inline markers. Verification now requires an integer citation array alongside verdict/explanation, using the same constrained generation mechanism. This is an output-protocol refinement; SUPPORT/CONTRADICT/ABSTAIN definitions are unchanged. Explanation markers are ignored for verification. Empty arrays pass for ABSTAIN, fail for asserted verdicts; all provided numbers must exist in the supplied context. Duplicates remain in the raw array and map once in first-seen order. Type errors are flagged without coercion. Reference validity still does not establish entailment. Normal ask retains its historical marker policy.
 
 The same five-claim M7.3 smoke completed with five successful requests, five parsing successes, and five citation-array validation passes (two SUPPORT, three ABSTAIN). Mean retrieval/reranking was 4.34 s, generation 26.24 s, and online time 30.58 s; total smoke time including preparation was 167.17 s. Projected 188-claim runtime was 96.04 minutes. No full run or accuracy-based protocol tuning was performed. Results are preserved separately in results/scifact_claim_verification_smoke_m73.json; valid source references are not evidence-entailment judgments.
+
+## Completed M7 benchmark
+
+Measured values below come from the complete [188-claim artifact](../results/scifact_claim_verification_test.json), not a smoke sample.
+
+| Metric | Measured value |
+|---|---:|
+| Evaluated claims | 188 |
+| Overall accuracy | 0.148936 |
+| Non-abstained accuracy | 0.823529 |
+| Macro F1 | 0.188228 |
+| Abstention rate | 0.819149 |
+| Coverage | 0.180851 |
+| Parsing failure rate | 0.000000 |
+| Generation failure rate | 0.000000 |
+| Citation validation pass rate | 0.978723 |
+| Gold-document-present rate | 0.952128 |
+| Accuracy with gold document present | 0.150838 |
+| Accuracy with gold document absent | 0.111111 |
+| Total evaluation runtime (seconds) | 4981.39 |
+
+| Gold class | Precision | Recall | F1 |
+|---|---:|---:|---:|
+| SUPPORT | 0.843750 | 0.217742 | 0.346154 |
+| CONTRADICT | 0.500000 | 0.015625 | 0.030303 |
+
+The qwen2.5:3b generator was highly conservative: it issued SUPPORT/CONTRADICT verdicts for only 34 of 188 claims (about 18% coverage), with 28 correct among those 34 (about 82% non-abstained accuracy). It abstained on 154 claims, leaving overall accuracy at about 15% when abstentions count as incorrect. CONTRADICT recall was very low: only 1 of 64 contradicting claims received a correct CONTRADICT verdict. Citation validity checks supplied source references and does not imply evidence entailment or explanation correctness.
+
+Confusion counts: gold SUPPORT -> 27 SUPPORT, 1 CONTRADICT, 96 ABSTAIN; gold CONTRADICT -> 5 SUPPORT, 1 CONTRADICT, 58 ABSTAIN. Gold-document-present accuracy is 27/179; absent accuracy is 1/9. These conditional observations are not causal evidence about retrieval versus reasoning. Runtime includes accumulated preparation and evaluation sessions. The authorized temporary 100-minute gate enabled execution; finalization restores 90 minutes without changing the frozen report or its execution fingerprints.
