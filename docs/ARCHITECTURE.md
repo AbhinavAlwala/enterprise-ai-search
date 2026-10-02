@@ -1,6 +1,6 @@
 # Current architecture
 
-The project is a single Python 3.12 package with a local CLI, lexical/exact dense indexes, document RRF, a cross-encoder reranker, and an independent HTTP answer-generation boundary.
+The project is a single Python 3.12 package with CLI and FastAPI entry points, lexical/exact dense indexes, document RRF, a cross-encoder reranker, and an independent HTTP answer-generation boundary.
 
 ```text
 download command -> pinned BEIR mirror files -> local data/scifact/
@@ -44,7 +44,7 @@ ask -> unchanged hybrid/reranker -> five winning passages -> numbered context/pr
 - `rag.py`: evidence/context models, the grounding prompt, source-reference validation, and thin query-to-answer composition.
 - `generation.py`: a small `Generator` protocol and standard-library `HttpGenerator`, configured through environment variables. Tests inject a fake implementation.
 
-BM25 and HTTP generation use the standard library. Dense retrieval needs NumPy, sentence-transformers, and CPU PyTorch plus their required dependencies. pytest is a development dependency; Hatchling builds the distribution. `uv.lock` records environment resolution. Each dense command loads the encoder and verifies/reuses or regenerates chunk embeddings. Evaluation builds one index for all queries. Data, model weights, and binary caches remain ignored. No SDK, orchestration framework, server API, or vector database was added.
+BM25 and HTTP generation use the standard library. Dense retrieval needs NumPy, sentence-transformers, and CPU PyTorch plus their required dependencies. FastAPI/Pydantic define the HTTP boundary and Uvicorn serves it; pytest/HTTPX are development dependencies. Hatchling builds the distribution. `uv.lock` records environment resolution. Each dense CLI command loads the encoder and verifies/reuses or regenerates chunk embeddings. Evaluation builds one index for all queries. Data, model weights, and binary caches remain ignored. No SDK, orchestration framework, or vector database was added.
 
 Reranking reuses the installed sentence-transformers `CrossEncoder` API without new dependencies. Its weights live in `data/reranker/models/`. Pair scoring runs online; passage representations cannot be cached independently of the query as dense embeddings can. Frozen retriever modules remain unchanged.
 
@@ -61,3 +61,9 @@ M7.1 adds an optional JSON-schema `response_format` to the existing HTTP configu
 M7.3 keeps citations as a required integer array in verification output. Claim verification validates source membership and builds provenance separately from JSON/verdict validation; normal ask still uses the frozen inline-marker validator.
 
 The full 188-claim qwen2.5:3b benchmark is preserved in [scifact_claim_verification_test.json](../results/scifact_claim_verification_test.json). Its classification results are separate from retrieval metrics and do not measure general answer correctness. The runtime gate is restored to 90 minutes.
+
+## HTTP application (M8)
+
+`api.create_app` owns request/response models and three business routes. Its lifespan calls `service.load_service` once per process, stores one concrete `SearchService` on application state, and releases references at shutdown. That service retains both indexes (including chunks, vectors, and encoder), the reranker, and optional HTTP generator.
+
+`/health` reads readiness/configuration only. `/search` calls the frozen hybrid-50/reranking path; `/ask` calls frozen M6 `rag.ask`. A shared lock serializes inference; synchronous handlers run in FastAPI's worker threads, leaving the cheap asynchronous health handler available. Additional processes have independent models and locks. Tests inject a service factory without transformer initialization. Missing generation configuration disables only `/ask`; failed retrieval preparation yields explicit not-ready/503 responses. No benchmark or domain source changes accompany this layer.

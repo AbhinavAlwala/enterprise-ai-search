@@ -1,5 +1,17 @@
 # Design decisions
 
+## M8: a thin local HTTP layer
+
+Use FastAPI with explicit Pydantic models, Uvicorn as the local ASGI server, and development-only HTTPX for `TestClient`. Pydantic is declared directly because application code imports it. Lock resolved versions with the existing uv workflow. No provider SDK or additional application framework is needed.
+
+One concrete service and an injectable app factory are sufficient. [FastAPI lifespan](https://fastapi.tiangolo.com/advanced/events/) loads expensive shared resources once per process and releases references on shutdown; per-request construction would repeat model loading and cache verification. Separate worker processes repeat that memory/setup cost. Tests substitute fakes rather than launching real models.
+
+Keep retrieval and M6 generation unchanged. Validate integer top-k 1–10 (default 5) and text length 1–2,000 after trimming as HTTP resource bounds, not retrieval tuning. Strip submitted values from validation errors. Expected preparation/request failures become sanitized status codes; an unexpected-error HTTP handler reports a generic 500 without altering core algorithms. Generation availability means valid configuration, not a health probe or successful model call.
+
+Synchronous inference runs in worker threads under one service lock: this avoids overlapping access to shared CPU models but serializes both search and generation, including waiting on the endpoint. Health uses no inference/lock. This is a simple local service, not a throughput solution; queue control, authentication, production deployment, streaming, and load testing are outside M8. Report preparation and handler/stage timings separately; HTTP timing is not a new retrieval benchmark. Citation validity continues to mean source existence only.
+
+Executed local smoke: preparation 26.60 s, real search 2.60 s, and qwen2.5:3b free-form ask 38.81 s (retrieval/reranking 2.35 s, generation 36.45 s). All returned HTTP 200. The answer lacked inline markers and retained failed/missing-citation status; no prompt, model default, or citation policy was changed to repair it. This verifies integration, not answer correctness.
+
 ## Standard metadata with uv
 
 Use `pyproject.toml` for package metadata and `uv` for dependency and environment management. This keeps configuration in one standard file and provides a lockfile workflow when the environment is initialized.

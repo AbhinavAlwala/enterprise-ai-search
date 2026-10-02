@@ -1,5 +1,13 @@
 # Code walkthrough
 
+## HTTP boundary (M8)
+
+- `api.py`: Pydantic request/response models, bounded text/top-k validation, sanitized HTTP errors, and `create_app(service_factory=load_service)`. Its lifespan prepares once and calls `close` at shutdown. Only the three business routes expose existing operations.
+- `service.py`: `load_service` composes existing loaders/indexes/cache/reranker without changing their settings. `SearchService.search` requests 50 hybrid candidates and reranks; `answer` calls unchanged `rag.ask`. Both reuse a shared lock and the same initialized objects. Generation configuration is optional; logs use standard-library logging and omit payloads/secrets.
+- `tests/test_api.py`: factory injection, tiny fake candidate/predictor/generator objects, lifecycle/resource reuse, request limits, ranking/source mapping, failed citations, missing configuration, and sanitized failure responses. A mocked default-loader test verifies preparation without models or corpus files.
+
+Start with `uv run --locked --offline --cache-dir .uv-cache uvicorn enterprise_ai_search.api:create_app --factory --host 127.0.0.1 --port 8000` from the repository root after setup. Lifespan -> retained service -> validated HTTP request -> existing retrieval or M6 RAG -> public response model -> JSON. The CLI remains the evaluation/preparation entry point; the API does not expose benchmark execution. See README for the exact PowerShell requests.
+
 - `models.py`: `Document` represents a source record; `Chunk` represents a searchable passage with a parent ID; `SearchResult` adds rank and score. Frozen dataclasses discourage accidental record mutation.
 - `dataset.py`: `FILES` fixes download provenance and SHA-256 values. `download_scifact` verifies cached/downloaded bytes and replaces files only after verification. `load_corpus` separately handles plain or compressed JSONL without network access. `load_queries` reuses its ID/text validation; `load_qrels` parses provided TSV grades without inventing labels.
 - `text.py`: `ChunkingConfig` centralizes size/overlap and validates them. `normalize_text` keeps readable case/punctuation. `tokenize` creates case-insensitive search terms. `chunk_documents` creates deterministic windows and validates document IDs.

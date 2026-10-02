@@ -1,5 +1,17 @@
 # Current data flow
 
+## HTTP requests (M8)
+
+1. Uvicorn invokes `api.create_app`; lifespan loads the local corpus, unchanged chunks/indexes, verified dense cache, encoder, reranker, and optional generator once. Run from the repository root; no dataset download is performed by startup. Model/cache misses follow the existing preparation behavior.
+2. `/health` reads the retained initialization/configuration flags and preparation time. It performs no retrieval or generator request; configured does not mean reachable.
+3. `/search` validates trimmed query text (1–2,000 characters) and integer `top_k` (1–10), acquires the service lock, then uses existing BM25+dense -> document RRF top 50 -> cross-encoder -> winning passages. The API maps only public rank, IDs, text, and raw reranker score to JSON.
+4. `/ask` validates the question and requires generation configuration. Under the same lock, unchanged M6 retrieval selects five passages, builds its existing numbered prompt, generates free-form text, and validates inline source references. JSON preserves answer, evidence, mappings, failures, and existing online-stage timings. It never invokes claim evaluation.
+5. HTTP handlers add `handler_seconds`, including time waiting for the lock but excluding request validation, response serialization, and network transfer. Retrieval/generation stage timings exclude that wait; one-time preparation appears only in health. Shutdown releases retained service references.
+
+Invalid input is 422; missing retrieval/configuration is 503; search failures are 500 and expected answer-pipeline failures are 502. Responses and application logs omit exception details, keys, and large evidence payloads. The CLI still prepares resources per invocation and prints JSON; the HTTP service keeps them across requests.
+
+## Local ingestion and lexical search
+
 1. `enterprise-search download` fetches compressed corpus/query JSONL and train/test qrels from pinned BEIR mirror revisions. Each file is SHA-256 verified before replacing its destination. Valid cached files are reused. Partial download files are cleaned up.
 2. `enterprise-search search` reads only the local corpus. `load_corpus` maps `_id`, `text`, and optional `title` to documents, preserving source IDs. Invalid records and duplicate IDs raise errors with line numbers.
 3. `chunk_documents` joins each title and abstract once, normalizes Unicode to NFC, and collapses whitespace. It makes 180-word windows with 30-word overlap by default. Chunk IDs are `<document-id>::chunk::<zero-based-window-number>`.

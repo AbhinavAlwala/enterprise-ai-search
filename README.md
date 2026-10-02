@@ -2,7 +2,7 @@
 
 A retrieval engineering project built in tested milestones, with explicit algorithms, reproducible evaluation, and documented trade-offs.
 
-**Status: Milestone 7 complete, including the full bounded SciFact claim-verification benchmark.** A local CLI provides BM25, exact dense search, document RRF, cross-encoder reranking, and a thin retrieval-augmented generation (RAG) layer with source-reference validation. Retrieval is evaluated on the same 300-query SciFact test split. RAG and the HTTP boundary are tested offline with fakes. A separate bounded SciFact stance evaluation adds explicit SUPPORT/CONTRADICT/ABSTAIN output and resumable reports. Frozen retrieval source and artifacts are preserved.
+**Status: Milestone 8 adds a local FastAPI service; the completed retrieval and bounded SciFact claim-verification benchmarks are preserved.** CLI and HTTP access share BM25, exact dense search, document RRF, cross-encoder reranking, and a thin retrieval-augmented generation (RAG) layer with source-reference validation. Retrieval is evaluated on the same 300-query SciFact test split. API and generation tests run offline with fakes. A separate bounded SciFact stance evaluation adds explicit SUPPORT/CONTRADICT/ABSTAIN output and resumable reports. Frozen retrieval source and artifacts are preserved.
 
 - Verified, revision-pinned [BEIR SciFact](https://github.com/beir-cellar/beir/wiki/Datasets-available) ingestion and deterministic overlapping chunks.
 - Explicit BM25 and revision-pinned `sentence-transformers/all-MiniLM-L6-v2` with cached 384-dimensional CPU embeddings.
@@ -55,12 +55,35 @@ Downloaded data, models, and NPZ caches are ignored. After initial downloads, ca
 Start an existing OpenAI-compatible chat endpoint serving a model, then set `GENERATION_ENDPOINT` to its full chat-completions URL and `GENERATION_MODEL` to that server's model identifier. Set `GENERATION_API_KEY` only if authentication is required. [.env.example](.env.example) documents these variables; the application reads the process environment and does not automatically load `.env`.
 
 ```powershell
-$env:GENERATION_ENDPOINT = "http://localhost:8000/v1/chat/completions"
-$env:GENERATION_MODEL = "your-served-model"
+$env:GENERATION_ENDPOINT = "http://localhost:11434/v1/chat/completions"
+$env:GENERATION_MODEL = "qwen2.5:3b"
 uv run --locked --offline --cache-dir .uv-cache enterprise-search ask "What does the retrieved evidence say about PPM1D and p53?"
 ```
 
-The URL/model above are configuration examples. The completed M7 benchmark used local qwen2.5:3b through its OpenAI-compatible endpoint. `ask` prints JSON containing the answer, selected passages, citation-to-document/chunk mappings, validation status, and separate preparation/retrieval/generation/total timings. The client uses standard-library HTTP with optional bearer authentication, a 60-second timeout, and `max_tokens=512`. Generation requires endpoint connectivity even when package/model caches are offline. No local LLM is downloaded by this project.
+The URL/model above assume Ollama already serves qwen2.5:3b locally; configure another served endpoint as needed. The completed M7 benchmark used local qwen2.5:3b through its OpenAI-compatible endpoint. `ask` prints JSON containing the answer, selected passages, citation-to-document/chunk mappings, validation status, and separate preparation/retrieval/generation/total timings. The client uses standard-library HTTP with optional bearer authentication, a 60-second timeout, and `max_tokens=512`. Generation requires endpoint connectivity even when package/model caches are offline. No local LLM is downloaded by this project.
+
+## Local HTTP API
+
+Run from the repository root after preparing the existing corpus and model caches. Lifespan startup loads retrieval resources once per process. To enable `/ask`, set the generation environment variables above to an available endpoint; missing configuration leaves `/search` usable.
+
+```powershell
+$env:HF_HUB_OFFLINE = "1"
+uv run --locked --offline --cache-dir .uv-cache uvicorn enterprise_ai_search.api:create_app --factory --host 127.0.0.1 --port 8000
+```
+
+In another terminal:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/health
+Invoke-RestMethod http://127.0.0.1:8000/search -Method Post -ContentType "application/json" -Body '{"query":"Radioiodine treatment of non-toxic multinodular goitre reduces thyroid volume.","top_k":3}'
+Invoke-RestMethod http://127.0.0.1:8000/ask -Method Post -ContentType "application/json" -Body '{"question":"Does radioiodine treatment reduce thyroid volume in non-toxic multinodular goitre?"}'
+```
+
+`GET /health` reports retrieval readiness, generation configuration, and preparation time without running inference or probing the generator. `POST /search` returns reranked document/passages and raw scores; `top_k` defaults to 5 and must be an integer from 1–10. Query/question strings must be nonempty after trimming and at most 2,000 characters. `POST /ask` returns the unchanged M6 free-form answer, five evidence passages, inline-citation mappings/status, and online timings; it does not run M7 claim verification.
+
+Invalid input returns 422; unavailable retrieval or generation configuration returns 503. Search failures return sanitized 500 responses, and expected answer-pipeline failures return sanitized 502 responses. CPU inference is serialized within one process; preparation is separate from request timings. Use one worker locally; reloads or additional workers load another model set. No authentication or production deployment is provided.
+
+The local M8 smoke returned 200 for health, real-corpus search, and qwen2.5:3b ask. Preparation took 26.60 s, search 2.60 s, and ask 38.81 s (36.45 s generation). The answer omitted inline markers, and the unchanged validator visibly reported missing citations. These are one-run operational observations, not an answer-quality benchmark.
 
 ## Engineering documentation
 
@@ -74,7 +97,7 @@ The URL/model above are configuration examples. The completed M7 benchmark used 
 
 The reranker cannot recover documents outside the 50 candidates, and only sees existing representative passages. Max passage aggregation can amplify false positives; some judged documents move downward despite better mean metrics. BM25, cosine, RRF, and cross-encoder scores are ranking signals, not probabilities or factual verification.
 
-The dense encoder truncates 3,478 of 8,778 unchanged chunks. Cross-encoder pairs share a 512-token limit and may also be truncated; that count is not audited. Qrels can be incomplete. Generation sees only five passages; their combined prompt must fit the configured model's context window. Citation validation checks references, not whether claims are supported or true. General free-form answer correctness and explanation entailment remain unmeasured. The M7 benchmark measures only explicit SciFact stances. No server API or production deployment is implemented.
+The dense encoder truncates 3,478 of 8,778 unchanged chunks. Cross-encoder pairs share a 512-token limit and may also be truncated; that count is not audited. Qrels can be incomplete. Generation sees only five passages; their combined prompt must fit the configured model's context window. Citation validation checks references, not whether claims are supported or true. General free-form answer correctness and explanation entailment remain unmeasured. The M7 benchmark measures only explicit SciFact stances. The local API adds no production deployment; CPU reranking and generation remain expensive, and concurrent inference requests wait for the shared service lock.
 
 ## Bounded claim-verification evaluation
 

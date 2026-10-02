@@ -1,5 +1,23 @@
 # Interview preparation
 
+## M8 questions
+
+**CLI versus HTTP API?** CLI commands run locally and print JSON, usually preparing resources per invocation. HTTP clients send requests to a persistent Uvicorn process; FastAPI validates inputs and returns JSON/status codes while reusing prepared resources.
+
+**What does lifespan do?** It initializes indexes/models before serving requests and releases references at shutdown. Models are loaded once per process, not globally across all workers.
+
+**Why request and response models?** Pydantic rejects invalid types, blank text, excess fields, and unbounded top-k before inference. Response models expose public passage/rank/provenance fields without internal index objects.
+
+**How do search and ask differ?** Search ranks stored passages using the frozen hybrid/reranker. Ask uses the same path, passes five sources to the unchanged M6 generator, and reports free-form text plus inline-reference validation. It does not use M7's verification schema.
+
+**What does ready mean?** Retrieval initialized successfully. Generation configured means endpoint/model settings are valid, not that the endpoint responds. Missing generation configuration returns 503 for ask while search/health remain usable; invalid request input is 422.
+
+**Does async make model inference fast?** No. Synchronous search/ask handlers run in worker threads, and a shared lock serializes costly inference. The asynchronous health handler only reads flags. Additional workers consume additional model memory.
+
+**How are API tests offline?** An injected service factory supplies fake candidates, reranker scores, and generated text. Tests still exercise HTTP validation, response mapping, lifecycle, errors, and existing RAG composition without corpus downloads or Ollama.
+
+**What should you understand before Docker?** ASGI server versus application; HTTP methods/status codes; request/response validation; lifespan and per-process resources; environment configuration versus endpoint availability; concurrency and blocking inference; offline test injection; and preparation versus handler/stage timing. Citation syntax is still not an entailment guarantee.
+
 **What is information retrieval, and what is implemented here?**
 
 Information retrieval selects and ranks stored content for a user's information need expressed as a query. Here a local CLI ranks SciFact chunks using lexical BM25 or dense cosine similarity, combines document rankings with RRF, and reranks candidates. A separate RAG layer can request answers from a configured generator; M7 adds bounded SciFact claim verification through the existing local qwen2.5:7b endpoint.
