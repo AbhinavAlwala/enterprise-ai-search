@@ -55,3 +55,7 @@ Generation runs in one non-streaming request after retrieval; it cannot change c
 `evaluate-claims` uses the unchanged M6 retrieval path and HTTP client with a separate fixed verification prompt. `dataset.load_stance_claims` exposes explicit test metadata without changing `load_queries`. `claim_verification.py` constructs messages and validates exact JSON verdicts and source references. `claim_evaluation.py` selects the 188 annotated test claims, prepares retrieval once, computes metrics, and saves resumable JSON after every prediction.
 
 Gold labels and annotated document IDs are evaluator inputs only; the generator receives the claim and five winning passages. No sentence-level scoring, external judge, retrieval tuning, or new dependency is involved.
+
+M7.1 adds an optional JSON-schema `response_format` to the existing HTTP configuration, enabled only for claim verification. No SDK or parser repair is added; free-form `ask` remains unchanged.
+
+M7.3 keeps citations as a required integer array in verification output. Claim verification validates source membership and builds provenance separately from JSON/verdict validation; normal ask still uses the frozen inline-marker validator.

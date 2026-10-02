@@ -20,6 +20,7 @@ class GenerationConfig:
     timeout_seconds: float = 60.0
     max_output_tokens: int = 512
     temperature: float | None = None
+    response_format: dict[str, object] | None = None
 
     def __post_init__(self) -> None:
         try:
@@ -60,6 +61,8 @@ class HttpGenerator:
         }
         if self.config.temperature is not None:
             payload["temperature"] = self.config.temperature
+        if self.config.response_format is not None:
+            payload["response_format"] = self.config.response_format
         headers = {"Content-Type": "application/json"}
         if self.config.api_key:
             headers["Authorization"] = "Bearer " + self.config.api_key

@@ -59,13 +59,14 @@ def evidence() -> tuple[EvidenceItem, ...]:
 
 @pytest.mark.parametrize("verdict", ["SUPPORT", "CONTRADICT", "ABSTAIN"])
 def test_parse_all_verdicts_with_source_mappings(verdict: str, evidence: tuple) -> None:
-    parsed = parse_verdict(json.dumps({"verdict": verdict, "explanation": "Reason [1]."}), evidence)
+    parsed = parse_verdict(json.dumps({"verdict": verdict, "explanation": "Reason without inline markers.", "citations": [1]}), evidence)
     assert parsed.verdict == verdict and parsed.citation_validation.passed
     assert parsed.citation_validation.citations[0].document_id == "doc"
 
 
 @pytest.mark.parametrize("raw", [
     "SUPPORT", '```json\n{"verdict":"SUPPORT","explanation":"x [1]"}\n```', "{", "[]", "null", None,
+    '{"verdict":"SUPPORT","explanation":"Reason.","citations":[NaN]}',
     '{"verdict":"support","explanation":"x"}', '{"verdict":"UNKNOWN","explanation":"x"}',
     '{"verdict":[],"explanation":"x"}', '{"verdict":"SUPPORT","explanation":" "}',
     '{"verdict":"SUPPORT","explanation":1}', '{"verdict":"SUPPORT"}',
@@ -77,10 +78,41 @@ def test_no_repair_or_freeform_coercion(raw: str, evidence: tuple) -> None:
         parse_verdict(raw, evidence)
 
 
-@pytest.mark.parametrize("explanation", ["Reason [99].", "Reason [1][-1].", "Insufficient evidence."])
-def test_reference_failure_keeps_structured_prediction(explanation: str, evidence: tuple) -> None:
-    parsed = parse_verdict(json.dumps({"verdict": "ABSTAIN", "explanation": explanation}), evidence)
-    assert parsed.verdict == "ABSTAIN" and not parsed.citation_validation.passed
+@pytest.mark.parametrize("verdict", ["SUPPORT", "CONTRADICT"])
+def test_asserted_verdict_requires_citation(verdict: str, evidence: tuple) -> None:
+    parsed = parse_verdict(json.dumps({"verdict": verdict, "explanation": "Reason [1].", "citations": []}), evidence)
+    assert parsed.verdict == verdict and not parsed.citation_validation.passed
+    assert parsed.citation_validation.missing_citations
+
+
+def test_abstain_allows_empty_array_and_ignores_inline_markers(evidence: tuple) -> None:
+    parsed = parse_verdict(json.dumps({"verdict": "ABSTAIN", "explanation": "Unclear [99].", "citations": []}), evidence)
+    assert parsed.citation_validation.passed and not parsed.citation_validation.missing_citations
+    assert parsed.citation_validation.citations == ()
+
+
+@pytest.mark.parametrize("numbers", [[99], [1, -1], [0]])
+@pytest.mark.parametrize("verdict", ["SUPPORT", "CONTRADICT", "ABSTAIN"])
+def test_invalid_source_numbers_fail_without_discarding_verdict(numbers: list, verdict: str, evidence: tuple) -> None:
+    parsed = parse_verdict(json.dumps({"verdict": verdict, "explanation": "Reason.", "citations": numbers}), evidence)
+    assert parsed.verdict == verdict and not parsed.citation_validation.passed
+    assert parsed.citation_validation.invalid_source_numbers
+    if 1 in numbers:
+        assert parsed.citation_validation.citations[0].document_id == "doc"
+
+
+@pytest.mark.parametrize("numbers", [None, "1", ["1"], [True], [1.0], [[1]], [1, "2"]])
+def test_invalid_array_types_are_not_coerced(numbers: object, evidence: tuple) -> None:
+    parsed = parse_verdict(json.dumps({"verdict": "SUPPORT", "explanation": "Reason.", "citations": numbers}), evidence)
+    assert not parsed.citation_validation.passed and parsed.citation_numbers == numbers
+    assert parsed.citation_validation.citations == ()
+
+
+def test_duplicate_sources_map_once_in_first_seen_order(evidence: tuple) -> None:
+    second = EvidenceItem(2, "other", "other::1", 2, "Other evidence")
+    parsed = parse_verdict(json.dumps({"verdict": "SUPPORT", "explanation": "Reason.", "citations": [2, 1, 2]}), evidence + (second,))
+    assert parsed.citation_validation.passed and parsed.citation_numbers == [2, 1, 2]
+    assert [(c.source_number, c.document_id, c.chunk_id) for c in parsed.citation_validation.citations] == [(2, "other", "other::1"), (1, "doc", "doc::0")]
 
 
 def test_prompt_contains_only_claim_and_supplied_evidence(evidence: tuple) -> None:
@@ -103,9 +135,10 @@ class FakeReranker:
 
 
 @pytest.mark.parametrize("raw,status,predicted", [
-    ('{"verdict":"SUPPORT","explanation":"Cat [1]."}', "ok", "SUPPORT"),
-    ('{"verdict":"ABSTAIN","explanation":"Unclear."}', "ok", "ABSTAIN"),
+    ('{"verdict":"SUPPORT","explanation":"Cat.","citations":[1]}', "ok", "SUPPORT"),
+    ('{"verdict":"ABSTAIN","explanation":"Unclear.","citations":[]}', "ok", "ABSTAIN"),
     ("free-form SUPPORT [1]", "failed", None),
+    ('{"verdict":"UNKNOWN","explanation":"Invalid.","citations":[]}', "failed", None),
 ])
 def test_fake_generation_with_real_retrieval(raw: str, status: str, predicted: str | None) -> None:
     chunks = [Chunk("a0", "a", "cat"), Chunk("b0", "b", "dog")]
@@ -120,6 +153,12 @@ def test_fake_generation_with_real_retrieval(raw: str, status: str, predicted: s
     assert record["parse_status"] == status and record["predicted_stance"] == predicted
     assert record["gold_document_present"] and record["supplied_document_ids"] == ["a", "b"]
     assert record["abstained"] == (predicted == "ABSTAIN")
+    if predicted is not None:
+        assert record["structured_parse_success"] and record["verdict_valid"] and record["citation_array_valid"]
+    elif "UNKNOWN" in raw:
+        assert record["structured_parse_success"] and record["verdict_valid"] is False
+    else:
+        assert not record["structured_parse_success"] and record["verdict_valid"] is None
     assert record["timings"]["online_seconds"] >= record["timings"]["retrieval_reranking_seconds"] + record["timings"]["generation_request_seconds"]
 
 
@@ -134,3 +173,27 @@ def test_generation_error_is_not_a_parse_error_or_abstention() -> None:
     record = verify_claim(StanceClaim("q", "claim", "SUPPORT", ("a",)), EmptyIndex(), FakeReranker(), FailingGenerator())
     assert record["generation_status"] == "failed" and record["parse_status"] == "not_attempted"
     assert record["predicted_stance"] is None and not record["abstained"]
+
+
+def test_required_response_schema_and_cap_do_not_change_freeform_defaults() -> None:
+    from enterprise_ai_search.claim_verification import VERIFICATION_MAX_OUTPUT_TOKENS, VERIFICATION_RESPONSE_FORMAT
+    from enterprise_ai_search.generation import GenerationConfig
+
+    assert VERIFICATION_RESPONSE_FORMAT == {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "claim_verification", "strict": True,
+            "schema": {
+                "type": "object", "additionalProperties": False,
+                "properties": {"verdict": {"type": "string", "enum": ["SUPPORT", "CONTRADICT", "ABSTAIN"]},
+                               "explanation": {"type": "string"},
+                               "citations": {"type": "array", "items": {"type": "integer"}}},
+                "required": ["verdict", "explanation", "citations"],
+            },
+        },
+    }
+    config = GenerationConfig("http://localhost/v1", "model")
+    assert config.response_format is None and config.max_output_tokens == 512
+    assert VERIFICATION_MAX_OUTPUT_TOKENS == 128
+    with pytest.raises(ValueError):
+        parse_verdict('{"verdict": SUPPORT, "explanation": "Evidence [1]."}', ())

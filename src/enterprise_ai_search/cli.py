@@ -179,12 +179,14 @@ def _run_ask(args: argparse.Namespace) -> None:
 
 def _run_claim_evaluation(args: argparse.Namespace) -> None:
     from enterprise_ai_search.claim_evaluation import evaluation_identity, load_test_claims, prepare_retrieval, run_evaluation
+    from enterprise_ai_search.claim_verification import VERIFICATION_MAX_OUTPUT_TOKENS, VERIFICATION_RESPONSE_FORMAT
     from enterprise_ai_search.generation import GenerationConfig, HttpGenerator
 
     _check_report_output(args.output)
-    config = replace(GenerationConfig.from_env(), temperature=0.0, max_output_tokens=256, timeout_seconds=180.0)
-    if config.model != "qwen2.5:7b":
-        raise ValueError("M7 uses the existing qwen2.5:7b model")
+    config = replace(GenerationConfig.from_env(), temperature=0.0, max_output_tokens=VERIFICATION_MAX_OUTPUT_TOKENS,
+                     timeout_seconds=180.0, response_format=VERIFICATION_RESPONSE_FORMAT)
+    if config.model not in ("qwen2.5:7b", "qwen2.5:3b"):
+        raise ValueError("Claim verification uses qwen2.5:7b or qwen2.5:3b")
     if args.resume and args.resume_from is not None:
         raise ValueError("Use either --resume or --resume-from")
     resume_from = args.output if args.resume else args.resume_from

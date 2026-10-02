@@ -98,3 +98,7 @@ uv run --locked --offline --cache-dir .uv-cache enterprise-search evaluate-claim
 ```
 
 Tests use fixture annotations, hand-calculated metrics, fake generation with real tiny retrieval indexes, mocked HTTP, and interruption/resume simulations. No unit test calls the real LLM.
+
+M7.1: `VERIFICATION_RESPONSE_FORMAT` defines the two required fields and verdict enum; `VERIFICATION_MAX_OUTPUT_TOKENS` fixes the claim cap at 128. The CLI enables these only for verification, and checkpoint identity includes the schema. The strict parser and fake-generator method signature are unchanged.
+
+M7.3: `validate_citation_array` checks integer types and source membership, deduplicates mappings in first-seen order, and applies verdict-specific empty-array rules. `VerdictParseError` carries parse/verdict stage information. Records expose `structured_parse_success`, `verdict_valid`, `citation_array_valid`, the raw array, and provenance independently. Existing fake-generator signatures and free-form ask are unchanged.

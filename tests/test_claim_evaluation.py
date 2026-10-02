@@ -129,12 +129,13 @@ def test_generation_failure_is_checkpointed_and_stops(tmp_path: Path, monkeypatc
     assert len(json.loads(output.read_text())["per_query"]) == 1
 
 
-def test_cli_smoke_and_full_resume_with_fake_preparation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], claims: list) -> None:
+@pytest.mark.parametrize("model", ["qwen2.5:7b", "qwen2.5:3b"])
+def test_cli_smoke_and_full_resume_with_fake_preparation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], claims: list, model: str) -> None:
     from enterprise_ai_search import generation
     from enterprise_ai_search.cli import main
 
     monkeypatch.setenv("GENERATION_ENDPOINT", "http://localhost/v1")
-    monkeypatch.setenv("GENERATION_MODEL", "qwen2.5:7b")
+    monkeypatch.setenv("GENERATION_MODEL", model)
     monkeypatch.setattr(evaluation, "load_test_claims", lambda path: claims)
     class FakeIndex:
         class bm25:
@@ -144,7 +145,14 @@ def test_cli_smoke_and_full_resume_with_fake_preparation(tmp_path: Path, monkeyp
     monkeypatch.setattr(evaluation, "prepare_retrieval", lambda *args: (FakeIndex(), None, {"preparation_seconds": 0}))
     monkeypatch.setattr(evaluation, "evaluation_identity", lambda *args: {"fixed": True})
     monkeypatch.setattr(evaluation, "verify_claim", fake_record)
-    monkeypatch.setattr(generation, "HttpGenerator", lambda config: None)
+    def fake_generator(config: generation.GenerationConfig) -> None:
+        from enterprise_ai_search.claim_verification import VERIFICATION_RESPONSE_FORMAT
+
+        assert config.max_output_tokens == 128 and config.temperature == 0
+        assert config.model == model
+        assert config.response_format == VERIFICATION_RESPONSE_FORMAT
+        return None
+    monkeypatch.setattr(generation, "HttpGenerator", fake_generator)
     smoke, full = tmp_path / "smoke.json", tmp_path / "full.json"
     monkeypatch.setattr(sys, "argv", ["enterprise-search", "evaluate-claims", "--smoke", "--output", str(smoke)])
     main()

@@ -79,13 +79,18 @@ def test_request_errors_do_not_echo_server_body_credentials_or_url(monkeypatch: 
 
 
 def test_verification_generation_settings_in_http_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    from enterprise_ai_search.claim_verification import VERIFICATION_MAX_OUTPUT_TOKENS, VERIFICATION_RESPONSE_FORMAT
+
     def fake_open(request: object, timeout: float) -> io.BytesIO:
         payload = json.loads(request.data)
-        assert payload["temperature"] == 0 and payload["max_tokens"] == 256
+        assert payload["temperature"] == 0 and payload["max_tokens"] == 128
+        assert payload["response_format"] == VERIFICATION_RESPONSE_FORMAT
         assert timeout == 180 and payload["stream"] is False
         return io.BytesIO(b'{"choices":[{"message":{"content":"structured response"}}]}')
     monkeypatch.setattr(generation, "urlopen", fake_open)
-    config = GenerationConfig("http://localhost/v1", "qwen2.5:7b", temperature=0, max_output_tokens=256, timeout_seconds=180)
+    config = GenerationConfig("http://localhost/v1", "qwen2.5:7b", temperature=0,
+                              max_output_tokens=VERIFICATION_MAX_OUTPUT_TOKENS, timeout_seconds=180,
+                              response_format=VERIFICATION_RESPONSE_FORMAT)
     assert HttpGenerator(config).generate([]) == "structured response"
 
 

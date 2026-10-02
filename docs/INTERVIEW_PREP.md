@@ -203,3 +203,7 @@ CLI configuration -> existing corpus/cache/models -> hybrid 50 -> reranked five 
 **Main limitations?** Only 188 annotated scientific claims; no gold abstentions, sentence alignment, general-answer reference facts, or explanation entailment scoring. A correct verdict can accompany an unsupported explanation.
 
 **What did the real M7 smoke establish?** Retrieval and the HTTP client executed for five claims, but every response violated JSON syntax by leaving the verdict unquoted. Strict parsing recorded five failures, not inferred predictions. The full-run estimate exceeded 90 minutes, so there are no 188-claim quality results.
+
+**Why use constrained generation instead of repairing output?** M7.1 sends a JSON schema through the OpenAI-compatible response_format field to prevent serialization errors during generation. Strict parsing still rejects invalid output; schema compliance does not establish semantic correctness. The verdict instructions and retrieval remain unchanged.
+
+**Why structured citations?** A dedicated integer array separates source references from prose. Verification can accept an uncited ABSTAIN while requiring supplied sources for SUPPORT/CONTRADICT. Valid JSON, a valid verdict, and valid source references are separate checks; none proves evidence entailment.

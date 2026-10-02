@@ -119,6 +119,7 @@ def evaluation_identity(data_dir: Path, cache_dir: Path, claims: list[StanceClai
         "generation": {
             "endpoint": config.endpoint, "model": config.model, "temperature": config.temperature,
             "max_output_tokens": config.max_output_tokens, "timeout_seconds": config.timeout_seconds,
+            "response_format": config.response_format,
         },
         "evidence_count": EVIDENCE_COUNT,
         "input_sha256": {name: _file_hash(data_dir / name) for name in ("corpus.jsonl.gz", "queries.jsonl.gz", "qrels/test.tsv")},
