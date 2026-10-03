@@ -1,5 +1,23 @@
 # Interview preparation
 
+## M10 questions
+
+**Authentication versus authorization?** Authentication establishes identity; authorization checks permission. We assume an upstream gateway verifies and replaces `X-Tenant-ID`, `X-Principal-ID`, and optional `X-Groups`. The headers alone are spoofable and do not authenticate callers.
+
+**Tenant, principal, group, and ACL?** A tenant is an isolation boundary; a principal is a caller within it; groups grant shared membership. A document ACL names its owning tenant and either tenant-wide visibility or explicit principal/group grants. Tenant equality is always checked first, even when two tenants reuse a principal/group name or have identical document text.
+
+**Default deny versus fail closed?** Default deny means an unlisted document is inaccessible. Fail closed means malformed/missing policy configuration disables protected routes, rather than granting access on failure. Unknown tenants get generic 403; malformed identity gets 400; unavailable policies get 503. Errors never name inaccessible documents.
+
+**Where is permission filtering enforced?** The service's `AuthorizedIndex` removes denied documents from the frozen global hybrid top 50 before cross-encoder inference. Both search and M6 ask use it, so only authorized winners become context, model input, results, and source mappings. Filtering only the final answer would expose protected text earlier.
+
+**How do permissions affect recall?** Filtering 50 candidates without replacement can leave few or zero passages. A useful authorized document outside that pool stays missed. Separate tenant indexes could reduce competition but would change preparation/retrieval; this milestone preserves the scientific implementation.
+
+**How is leakage tested?** Offline fakes record actual predictor pairs and generator messages. Tests check denied IDs/text are absent, identical cross-tenant passages remain distinct, citations map only to supplied authorized sources, and missing/malformed identity/policies cannot broaden access. All 400 tests passed, including 73 authorization cases.
+
+**What did the real smoke establish?** The same query returned A's three IDs and B's two distinct IDs. One A ask supplied only A's evidence, but answered insufficient evidence with missing citations visibly flagged. This verifies source-flow isolation, not answer truth or retrieval quality. The SciFact tenant overlay is synthetic, not benchmark ground truth.
+
+**What remains unsecured?** No authentication/gateway, policy hot reload, physical index separation, side-channel protection, or prompt-injection defense. The process and scientific CLI retain privileged corpus access. Authorization controls supplied evidence/provenance; it cannot guarantee the generator's arbitrary output or memory contains no unrelated information.
+
 ## M9 questions
 
 **Image versus container?** The image packages the installed application and runtime dependencies. A container runs that image with process, network, and writable state; mounted host data remains outside it.
@@ -12,11 +30,11 @@
 
 **Why doesn't localhost reach host Ollama?** Each container has its own loopback/network. Docker Desktop's `host.docker.internal` reaches the host; `GENERATION_ENDPOINT` selects that URL. Published port 8000 provides the opposite direction: host clients reaching the API.
 
-**How do environment variables and healthchecks work?** Compose explicitly forwards generation variables; Python does not load `.env`. The healthcheck calls only `/health` and observes retrieval readiness. Configured generation is not proof of a reachable model, and an unhealthy status alone does not restart the container.
+**How do environment variables and healthchecks work?** Compose explicitly forwards generation variables and sets M10's mounted policy path; Python does not load `.env`. The healthcheck calls only `/health` and observes retrieval/policy readiness. Configured generation is not proof of a reachable model, and an unhealthy status alone does not restart the container.
 
 **Why one worker and how does shutdown work?** Each worker loads another model/index set. One worker preserves shared resource reuse and serialized inference. Compose signals Uvicorn, lifespan releases references, then the container/network are removed; bind-mounted files survive.
 
-**What remains unverified?** No Docker CLI was available for M9, so image size/build, Linux cache permissions/compatibility, startup time, and host-Ollama HTTP flow have no measured results. Existing offline Python tests/package build succeeded. Do not reuse M8 host timings as Docker timings.
+**What Docker evidence exists?** The owner reported successful M9 build, health/search/host-Ollama ask, and mounted caches after the initial pass lacked Docker. No image-size or startup-time measurement is recorded here. M10 was verified locally; its updated container was not run. Do not reuse host timings as Docker timings.
 
 **Concepts before permission-aware retrieval?** Image/container isolation; reproducible dependencies versus reproducible data; bind mounts and ownership; network boundaries; explicit environment configuration; process/model lifecycle; readiness versus upstream availability; and API deployment versus user/document access control. M9 adds no permission enforcement.
 
@@ -30,7 +48,7 @@
 
 **How do search and ask differ?** Search ranks stored passages using the frozen hybrid/reranker. Ask uses the same path, passes five sources to the unchanged M6 generator, and reports free-form text plus inline-reference validation. It does not use M7's verification schema.
 
-**What does ready mean?** Retrieval initialized successfully. Generation configured means endpoint/model settings are valid, not that the endpoint responds. Missing generation configuration returns 503 for ask while search/health remain usable; invalid request input is 422.
+**What does ready mean?** Retrieval and M10's policy store initialized successfully. Generation configured means endpoint/model settings are valid, not that the endpoint responds. Missing generation configuration returns 503 for ask while search/health remain usable; invalid body input is 422 and identity errors are 400/403.
 
 **Does async make model inference fast?** No. Synchronous search/ask handlers run in worker threads, and a shared lock serializes costly inference. The asynchronous health handler only reads flags. Additional workers consume additional model memory.
 

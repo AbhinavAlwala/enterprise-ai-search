@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "description": "SYNTHETIC DEMO AUTHORIZATION METADATA. Not SciFact benchmark annotations.",
+  "tenants": ["tenant-a", "tenant-b"],
+  "documents": [
+    {"document_id": "9745001", "tenant_id": "tenant-a", "visibility": "tenant", "allowed_principals": [], "allowed_groups": []},
+    {"document_id": "26026009", "tenant_id": "tenant-a", "visibility": "restricted", "allowed_principals": [], "allowed_groups": ["researchers"]},
+    {"document_id": "37912677", "tenant_id": "tenant-a", "visibility": "restricted", "allowed_principals": ["alice"], "allowed_groups": []},
+    {"document_id": "6751418", "tenant_id": "tenant-b", "visibility": "tenant", "allowed_principals": [], "allowed_groups": []},
+    {"document_id": "43122426", "tenant_id": "tenant-b", "visibility": "restricted", "allowed_principals": [], "allowed_groups": ["researchers"]}
+  ]
+}

@@ -1,12 +1,28 @@
 # Current architecture
 
+## Authorization boundary (M10)
+
+`authorization.py` contains immutable `PrincipalContext`, `DocumentAccessPolicy`, and `PolicyStore` records, separate header parsing, and an `AuthorizedIndex` adapter. `service.load_service` loads one policy snapshot from required `AUTHORIZATION_POLICY_PATH`. A missing/invalid file leaves authorization unavailable; protected routes and health return 503. No policy framework or dependency was added.
+
+```text
+trusted upstream identity headers -> API validation -> PrincipalContext
+                                    + retained PolicyStore
+question -> frozen global hybrid top 50 -> authorized candidates
+         -> frozen cross-encoder -> authorized winning passages
+         -> search JSON OR frozen M6 context/generator/citation mapping
+```
+
+Tenant equality is mandatory. Within that tenant, visibility `tenant` grants all members; `restricted` grants an explicitly listed principal OR a member of a listed group. Empty restricted lists deny everyone. Missing entries deny access. One document ID has one owning tenant; identical text does not merge permissions. The adapter also rejects inconsistent representative parent IDs and assigns consecutive candidate ranks for the unchanged reranker contract.
+
+The privileged index still contains all SciFact documents; this is a service boundary, not physical tenant separation. Scientific CLI/evaluation paths remain unscoped and frozen. The separate five-document/two-tenant JSON overlay is synthetic deployment metadata, not benchmark annotations. Headers are an assumed upstream identity, not authentication; direct clients can spoof them. Policies require restart to change. Filtering the fixed 50 without backfill can reduce recall. No identity/policy details are included in normal responses or application logs.
+
 ## Docker boundary (M9)
 
 One Compose service wraps the existing FastAPI application in a Linux amd64 Python 3.12 image. The build stage installs runtime dependencies from unchanged `uv.lock` and a non-editable application package; the final stage retains that environment, without uv, development dependencies, host data, tests, or result artifacts. It runs as a non-root user and starts one Uvicorn worker on container port 8000.
 
-Four bind mounts supply existing SciFact data, the writable dense embedding cache, and read-only encoder/reranker model directories. The encoder mount is nested inside `data/dense` to protect weights while allowing NPZ regeneration. Auxiliary Hugging Face cache state lives in ephemeral `/tmp`; the host global cache is not mounted. Ollama remains a host service accessed through `GENERATION_ENDPOINT`. The container healthcheck reads `/health`, never running inference or contacting Ollama. Application resources, locking, prompts, and benchmark artifacts are unchanged.
+Four directory mounts supply existing SciFact data, the writable dense embedding cache, and read-only encoder/reranker model directories. M10 adds a fifth, read-only demo policy file mount and its explicit environment path. The encoder mount is nested inside `data/dense` to protect weights while allowing NPZ regeneration. Auxiliary Hugging Face cache state lives in ephemeral `/tmp`; the host global cache is not mounted. Ollama remains a host service accessed through `GENERATION_ENDPOINT`. The container healthcheck reads `/health`, never running inference or contacting Ollama. Model lifecycle, locking, prompts, and benchmark artifacts are unchanged.
 
-Docker execution is pending: no CLI was available on the M9 development machine. This describes implemented configuration, not a verified container deployment.
+The project owner subsequently reported successful M9 Docker build/mount/health/search/host-Ollama verification after the initial pass lacked Docker. M10's authorization changes were verified with the local API; the updated container was not run in this pass.
 
 The project is a single Python 3.12 package with CLI and FastAPI entry points, lexical/exact dense indexes, document RRF, a cross-encoder reranker, and an independent HTTP answer-generation boundary.
 
@@ -74,4 +90,4 @@ The full 188-claim qwen2.5:3b benchmark is preserved in [scifact_claim_verificat
 
 `api.create_app` owns request/response models and three business routes. Its lifespan calls `service.load_service` once per process, stores one concrete `SearchService` on application state, and releases references at shutdown. That service retains both indexes (including chunks, vectors, and encoder), the reranker, and optional HTTP generator.
 
-`/health` reads readiness/configuration only. `/search` calls the frozen hybrid-50/reranking path; `/ask` calls frozen M6 `rag.ask`. A shared lock serializes inference; synchronous handlers run in FastAPI's worker threads, leaving the cheap asynchronous health handler available. Additional processes have independent models and locks. Tests inject a service factory without transformer initialization. Missing generation configuration disables only `/ask`; failed retrieval preparation yields explicit not-ready/503 responses. No benchmark or domain source changes accompany this layer.
+`/health` reads readiness/configuration only, including the policy-initialization flag without tenant details. `/search` calls the frozen hybrid-50/reranking path through the authorization adapter; `/ask` calls frozen M6 `rag.ask` through the same adapter. A shared lock serializes inference; synchronous handlers run in FastAPI's worker threads, leaving the cheap asynchronous health handler available. Additional processes have independent models, policy snapshots, and locks. Tests inject a service factory without transformer initialization. Missing generation configuration disables only `/ask`; failed retrieval or authorization preparation yields explicit not-ready/503 responses. No benchmark or domain source changes accompany this layer.

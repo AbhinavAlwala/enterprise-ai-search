@@ -10,7 +10,14 @@ services:
       GENERATION_ENDPOINT: "${GENERATION_ENDPOINT-http://host.docker.internal:11434/v1/chat/completions}"
       GENERATION_MODEL: "${GENERATION_MODEL-qwen2.5:3b}"
       GENERATION_API_KEY: "${GENERATION_API_KEY:-}"
+      AUTHORIZATION_POLICY_PATH: /app/config/demo_access.json
     volumes:
+      - type: bind
+        source: ./config/demo_access.json
+        target: /app/config/demo_access.json
+        read_only: true
+        bind:
+          create_host_path: false
       - type: bind
         source: ./data/scifact
         target: /app/data/scifact

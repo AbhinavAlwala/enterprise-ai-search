@@ -2,7 +2,7 @@
 
 A retrieval engineering project built in tested milestones, with explicit algorithms, reproducible evaluation, and documented trade-offs.
 
-**Status: Milestone 9 adds Docker deployment configuration; container execution is unverified on this machine.** CLI and HTTP access share BM25, exact dense search, document RRF, cross-encoder reranking, and a thin retrieval-augmented generation (RAG) layer with source-reference validation. Retrieval is evaluated on the same 300-query SciFact test split. API and generation tests run offline with fakes. A separate bounded SciFact stance evaluation adds explicit SUPPORT/CONTRADICT/ABSTAIN output and resumable reports. Frozen retrieval source and artifacts are preserved.
+**Status: Milestone 10 adds document authorization and tenant isolation to the HTTP API.** CLI and HTTP access share BM25, exact dense search, document RRF, cross-encoder reranking, and a thin retrieval-augmented generation (RAG) layer with source-reference validation. Retrieval is evaluated on the same 300-query SciFact test split. API and generation tests run offline with fakes. A separate bounded SciFact stance evaluation adds explicit SUPPORT/CONTRADICT/ABSTAIN output and resumable reports. Frozen retrieval source and artifacts are preserved.
 
 - Verified, revision-pinned [BEIR SciFact](https://github.com/beir-cellar/beir/wiki/Datasets-available) ingestion and deterministic overlapping chunks.
 - Explicit BM25 and revision-pinned `sentence-transformers/all-MiniLM-L6-v2` with cached 384-dimensional CPU embeddings.
@@ -68,22 +68,39 @@ Run from the repository root after preparing the existing corpus and model cache
 
 ```powershell
 $env:HF_HUB_OFFLINE = "1"
+$env:AUTHORIZATION_POLICY_PATH = "config/demo_access.json"
 uv run --locked --offline --cache-dir .uv-cache uvicorn enterprise_ai_search.api:create_app --factory --host 127.0.0.1 --port 8000
 ```
 
 In another terminal:
 
 ```powershell
+$identity = @{ "X-Tenant-ID" = "tenant-a"; "X-Principal-ID" = "alice"; "X-Groups" = "researchers" }
 Invoke-RestMethod http://127.0.0.1:8000/health
-Invoke-RestMethod http://127.0.0.1:8000/search -Method Post -ContentType "application/json" -Body '{"query":"Radioiodine treatment of non-toxic multinodular goitre reduces thyroid volume.","top_k":3}'
-Invoke-RestMethod http://127.0.0.1:8000/ask -Method Post -ContentType "application/json" -Body '{"question":"Does radioiodine treatment reduce thyroid volume in non-toxic multinodular goitre?"}'
+Invoke-RestMethod http://127.0.0.1:8000/search -Method Post -Headers $identity -ContentType "application/json" -Body '{"query":"Radioiodine treatment of non-toxic multinodular goitre reduces thyroid volume.","top_k":3}'
+Invoke-RestMethod http://127.0.0.1:8000/ask -Method Post -Headers $identity -ContentType "application/json" -Body '{"question":"Does radioiodine treatment reduce thyroid volume in non-toxic multinodular goitre?"}'
 ```
 
-`GET /health` reports retrieval readiness, generation configuration, and preparation time without running inference or probing the generator. `POST /search` returns reranked document/passages and raw scores; `top_k` defaults to 5 and must be an integer from 1–10. Query/question strings must be nonempty after trimming and at most 2,000 characters. `POST /ask` returns the unchanged M6 free-form answer, five evidence passages, inline-citation mappings/status, and online timings; it does not run M7 claim verification.
+`GET /health` reports retrieval/policy readiness, generation configuration, and preparation time without running inference or probing the generator. `POST /search` returns authorized reranked document/passages and raw scores; `top_k` defaults to 5 and must be an integer from 1–10. Query/question strings must be nonempty after trimming and at most 2,000 characters. `POST /ask` returns the unchanged M6 free-form answer, up to five authorized evidence passages, inline-citation mappings/status, and online timings; it does not run M7 claim verification.
 
-Invalid input returns 422; unavailable retrieval or generation configuration returns 503. Search failures return sanitized 500 responses, and expected answer-pipeline failures return sanitized 502 responses. CPU inference is serialized within one process; preparation is separate from request timings. Use one worker locally; reloads or additional workers load another model set. No authentication or production deployment is provided.
+Invalid body input returns 422; missing/malformed identity returns 400, unknown tenants return generic 403, and unavailable retrieval/policy or generation configuration returns 503. Search failures return sanitized 500 responses, and expected answer-pipeline failures return sanitized 502 responses. CPU inference is serialized within one process; preparation is separate from request timings. Use one worker locally; reloads or additional workers load another model set. No authentication or production deployment is provided.
 
 The local M8 smoke returned 200 for health, real-corpus search, and qwen2.5:3b ask. Preparation took 26.60 s, search 2.60 s, and ask 38.81 s (36.45 s generation). The answer omitted inline markers, and the unchanged validator visibly reported missing citations. These are one-run operational observations, not an answer-quality benchmark.
+
+## Permission-aware API (M10)
+
+Headers represent identity already verified by a trusted upstream gateway: required `X-Tenant-ID`/`X-Principal-ID`, optional comma-separated `X-Groups`. **These headers are not authentication and are spoofable on a directly exposed service.** Authorization requires a matching tenant, then either tenant-wide visibility, an explicit principal grant, or a matching group. Missing ACL entries deny access; a missing or malformed policy file disables protected routes.
+
+The service removes denied documents from the existing hybrid top 50 before cross-encoder inference, numbered RAG context, generation, and source serialization. It does not fetch replacements, so fewer results/evidence passages can remain. The privileged retrieval process still holds the whole corpus. CLI scientific runs remain unscoped and unchanged.
+
+[demo_access.json](config/demo_access.json) is **SYNTHETIC DEMO AUTHORIZATION METADATA**, assigning five existing documents to two tenants; all other documents are denied. It changes neither SciFact nor benchmark judgments. The same locally executed query, `Radioiodine treatment of non-toxic multinodular goitre reduces thyroid volume.`, with `top_k=5` produced:
+
+| Identity | Authorized document IDs, ranked | Search time (seconds) |
+|---|---|---:|
+| tenant-a / alice / researchers | 9745001, 26026009, 37912677 | 0.761 |
+| tenant-b / bob / researchers | 6751418, 43122426 | 0.375 |
+
+The sets were disjoint. One real tenant-a `/ask` used only its three authorized documents and returned an insufficient-evidence answer; missing citations were visibly flagged. Generation took 34.10 s and online processing 34.33 s, with 32.45 s one-time preparation. These are deployment checks with synthetic permissions, not retrieval or answer-quality benchmarks. The verification server was stopped. The full offline suite passed 400 tests, including 73 authorization cases.
 
 ## Docker deployment
 
@@ -114,14 +131,15 @@ $env:GENERATION_MODEL = "qwen2.5:3b"
 docker compose build
 docker compose up -d --wait --wait-timeout 300
 Invoke-RestMethod http://127.0.0.1:8000/health
-Invoke-RestMethod http://127.0.0.1:8000/search -Method Post -ContentType "application/json" -Body '{"query":"Radioiodine treatment of non-toxic multinodular goitre reduces thyroid volume.","top_k":3}'
-Invoke-RestMethod http://127.0.0.1:8000/ask -Method Post -ContentType "application/json" -Body '{"question":"Does radioiodine treatment reduce thyroid volume in non-toxic multinodular goitre?"}'
+$identity = @{ "X-Tenant-ID" = "tenant-a"; "X-Principal-ID" = "alice"; "X-Groups" = "researchers" }
+Invoke-RestMethod http://127.0.0.1:8000/search -Method Post -Headers $identity -ContentType "application/json" -Body '{"query":"Radioiodine treatment of non-toxic multinodular goitre reduces thyroid volume.","top_k":3}'
+Invoke-RestMethod http://127.0.0.1:8000/ask -Method Post -Headers $identity -ContentType "application/json" -Body '{"question":"Does radioiodine treatment reduce thyroid volume in non-toxic multinodular goitre?"}'
 docker compose down --timeout 90
 ```
 
 Compose explicitly forwards generation settings from shell variables or its `.env` interpolation file. Shell values take precedence; `.env.example` is a reference, not runtime loading logic. Unset endpoint/model values default to the host-Ollama example; explicitly blank values disable generation. `localhost` inside the container refers to that container, so host Ollama needs the configured host address. Host port 8000 is bound only to `127.0.0.1`.
 
-One Uvicorn worker reuses the existing lifespan/resources and inference lock. The standard-library healthcheck calls only `/health`; generation configuration is not a connectivity check. Shutdown releases application resources and removes the container/network, preserving bind-mounted files. Docker was unavailable during M9: Python tests and package build passed, but image size, container preparation time, and container health/search/ask remain unverified. See [Docker decisions](docs/DESIGN_DECISIONS.md) for reproducibility limits.
+One Uvicorn worker reuses the existing lifespan/resources and inference lock. Compose also mounts the demo policy read-only at `/app/config/demo_access.json` and explicitly sets `AUTHORIZATION_POLICY_PATH`; health requires successful policy initialization. Rebuild the image for M10 code. The standard-library healthcheck calls only `/health`; generation configuration is not a connectivity check. Shutdown releases application resources and removes the container/network, preserving bind-mounted files. After the initial M9 pass, the project owner reported successful Docker build, health/search, mounted caches, and host-Ollama ask verification. M10 was verified locally; its updated container was not run in this pass. Image size and container timings are not reported. See [Docker decisions](docs/DESIGN_DECISIONS.md) for reproducibility limits.
 
 ## Engineering documentation
 
@@ -134,6 +152,8 @@ One Uvicorn worker reuses the existing lifespan/resources and inference lock. Th
 ## Limitations
 
 The reranker cannot recover documents outside the 50 candidates, and only sees existing representative passages. Max passage aggregation can amplify false positives; some judged documents move downward despite better mean metrics. BM25, cosine, RRF, and cross-encoder scores are ranking signals, not probabilities or factual verification.
+
+Authorization uses a static policy snapshot loaded at startup, globally unique document IDs, and trusted upstream identity. It provides no login, gateway, hot policy reload, per-tenant index, timing-side-channel defense, or prompt-injection defense. Filtering can reduce recall. Model-generated text is not guaranteed truthful; permission checks govern supplied evidence/provenance, not the model's prior knowledge.
 
 The dense encoder truncates 3,478 of 8,778 unchanged chunks. Cross-encoder pairs share a 512-token limit and may also be truncated; that count is not audited. Qrels can be incomplete. Generation sees only five passages; their combined prompt must fit the configured model's context window. Citation validation checks references, not whether claims are supported or true. General free-form answer correctness and explanation entailment remain unmeasured. The M7 benchmark measures only explicit SciFact stances. The local API adds no production deployment; CPU reranking and generation remain expensive, and concurrent inference requests wait for the shared service lock.
 

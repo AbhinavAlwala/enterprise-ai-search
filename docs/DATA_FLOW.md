@@ -1,23 +1,34 @@
 # Current data flow
 
+## Permission checks (M10)
+
+1. Startup reads a strict JSON policy file into an immutable snapshot. Duplicate fields/IDs, unknown tenants, invalid identifiers or modes, and unexpected fields reject the whole file. There is no allow-all fallback.
+2. Search/ask parse exactly one `X-Tenant-ID` and `X-Principal-ID`, plus at most one optional comma-separated `X-Groups` header. IDs are case-sensitive ASCII tokens, at most 64 characters; groups are limited to 32 entries and 2,048 header characters. Identity is kept out of the natural-language prompt.
+3. Missing/malformed/duplicate identity headers return generic 400. An unknown tenant returns generic 403 when the service is ready; unavailable retrieval/policy returns 503. No error names a forbidden document or another identity.
+4. Under the existing lock, global hybrid retrieval selects its unchanged top 50. `AuthorizedIndex.search` drops missing/denied policies and inconsistent passage parents, then compacts ranks. Only matching-tenant grants survive; there is no backfill or expanded retrieval.
+5. The cross-encoder receives only surviving representative texts. Search returns up to the requested authorized top-k. Ask feeds up to five authorized winners to unchanged numbered context, prompt, and generator. Existing citation mappings can resolve only those supplied sources; missing/unknown markers remain flagged.
+6. A denied, missing-policy, or nonexistent candidate has no public result record. All-denied searches return an empty list; ask with no candidates supplies the existing no-evidence context. This hides document-existence details in response content, not timing or global ranking side channels.
+
+The local real-corpus smoke returned disjoint A/B source sets (3/2 documents) for the same query. One qwen2.5:3b ask used A's three authorized documents, took 34.33 s online, and returned an uncited insufficiency response with validation failed. No extra generation or scientific evaluation was run.
+
 ## Container startup and shutdown (M9)
 
 1. Prepare missing corpus/encoder/reranker artifacts using the existing host CLI commands in README. Image building downloads Python dependency wheels, not SciFact or model weights. `.dockerignore` limits build inputs to application source and packaging files.
 2. `docker compose build` builds the dependency layer from `pyproject.toml`/`uv.lock`, then installs the package. Only the resulting runtime environment is copied into the final image.
-3. Compose mounts the existing local directories, explicitly supplies generation environment variables, and publishes host `127.0.0.1:8000` to container port 8000. Missing mount directories are rejected instead of silently created.
-4. Uvicorn starts one worker in `/app`; unchanged lifespan reads mounted data/model snapshots, verifies/reuses the dense cache, and prepares resources once. A stale cache can be regenerated on the writable parent mount; model weights remain read-only. Offline flags prohibit fetching missing weights.
-5. Host HTTP requests follow the existing M8 flow. `/ask` calls configured host Ollama through Docker Desktop's host address; container loopback cannot address the host. Healthchecks read readiness only and do not validate generator connectivity.
-6. `docker compose down --timeout 90` signals Uvicorn, allowing in-flight work and lifespan cleanup before removing the container/network. Bind-mounted data survives; temporary container cache state does not. No actual container flow was executed during M9 because Docker was unavailable.
+3. Compose mounts the existing local directories plus M10's read-only demo policy file, supplies generation variables and `AUTHORIZATION_POLICY_PATH`, and publishes host `127.0.0.1:8000` to container port 8000. Missing mount sources are rejected instead of silently created.
+4. Uvicorn starts one worker in `/app`; lifespan reads policy/data/model snapshots, verifies/reuses the dense cache, and prepares resources once. A stale cache can be regenerated on the writable parent mount; model weights and policies remain read-only. Offline flags prohibit fetching missing weights.
+5. Host HTTP requests follow the identity/authorization flow above. `/ask` calls configured host Ollama through Docker Desktop's host address; container loopback cannot address the host. Healthchecks read retrieval/policy readiness only and do not validate generator connectivity.
+6. `docker compose down --timeout 90` signals Uvicorn, allowing in-flight work and lifespan cleanup before removing the container/network. Bind-mounted data survives; temporary container cache state does not. The owner reported later M9 Docker verification; M10 was verified locally and its updated container was not run here.
 
 ## HTTP requests (M8)
 
 1. Uvicorn invokes `api.create_app`; lifespan loads the local corpus, unchanged chunks/indexes, verified dense cache, encoder, reranker, and optional generator once. Run from the repository root; no dataset download is performed by startup. Model/cache misses follow the existing preparation behavior.
 2. `/health` reads the retained initialization/configuration flags and preparation time. It performs no retrieval or generator request; configured does not mean reachable.
-3. `/search` validates trimmed query text (1–2,000 characters) and integer `top_k` (1–10), acquires the service lock, then uses existing BM25+dense -> document RRF top 50 -> cross-encoder -> winning passages. The API maps only public rank, IDs, text, and raw reranker score to JSON.
-4. `/ask` validates the question and requires generation configuration. Under the same lock, unchanged M6 retrieval selects five passages, builds its existing numbered prompt, generates free-form text, and validates inline source references. JSON preserves answer, evidence, mappings, failures, and existing online-stage timings. It never invokes claim evaluation.
+3. `/search` validates trimmed query text (1–2,000 characters), integer `top_k` (1–10), and M10 identity. Under the service lock, existing BM25+dense -> document RRF top 50 -> authorization -> cross-encoder produces winning passages. The API maps only public rank, IDs, text, and raw reranker score to JSON.
+4. `/ask` validates the question/identity and requires generation configuration. Under the same lock, unchanged M6 RAG with the authorized index selects up to five passages, builds its existing numbered prompt, generates free-form text, and validates inline source references. JSON preserves answer, evidence, mappings, failures, and existing online-stage timings. It never invokes claim evaluation.
 5. HTTP handlers add `handler_seconds`, including time waiting for the lock but excluding request validation, response serialization, and network transfer. Retrieval/generation stage timings exclude that wait; one-time preparation appears only in health. Shutdown releases retained service references.
 
-Invalid input is 422; missing retrieval/configuration is 503; search failures are 500 and expected answer-pipeline failures are 502. Responses and application logs omit exception details, keys, and large evidence payloads. The CLI still prepares resources per invocation and prints JSON; the HTTP service keeps them across requests.
+Invalid body input is 422; identity errors are 400/403 as described above; missing retrieval/policy/generation configuration is 503; search failures are 500 and expected answer-pipeline failures are 502. Responses and application logs omit exception details, identity/ACL details, keys, and large evidence payloads. The privileged CLI still prepares unscoped resources per invocation and prints JSON; the HTTP service keeps them across requests.
 
 ## Local ingestion and lexical search
 

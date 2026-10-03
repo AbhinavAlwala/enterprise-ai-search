@@ -9,6 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from enterprise_ai_search.authorization import PrincipalContext, parse_principal
 from enterprise_ai_search.rag import CitationValidation, EvidenceItem
 from enterprise_ai_search.service import SearchService, load_service
 
@@ -35,6 +36,7 @@ class HealthResponse(BaseModel):
     status: Literal["ready", "not_ready"]
     retrieval_initialized: bool
     generation_configured: bool
+    authorization_initialized: bool
     preparation_seconds: float
 
 
@@ -94,27 +96,42 @@ def create_app(service_factory: Callable[[], SearchService] = load_service) -> F
 
     def ready_service(request: Request) -> SearchService:
         service = request.app.state.service
-        if service is None or not service.retrieval_initialized:
-            raise HTTPException(status_code=503, detail="Retrieval unavailable")
+        if service is None or not service.retrieval_initialized or not service.authorization_initialized:
+            raise HTTPException(status_code=503, detail="Service unavailable")
         return service
+
+    def authorized_service(request: Request) -> tuple[SearchService, PrincipalContext]:
+        names = ("x-tenant-id", "x-principal-id", "x-groups")
+        values = [request.headers.getlist(name) for name in names]
+        if len(values[0]) != 1 or len(values[1]) != 1 or len(values[2]) > 1:
+            raise HTTPException(status_code=400, detail="Invalid request identity")
+        try:
+            principal = parse_principal(values[0][0], values[1][0], values[2][0] if values[2] else None)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid request identity") from None
+        service = ready_service(request)
+        if principal.tenant_id not in service.policy_store.tenants:
+            raise HTTPException(status_code=403, detail="Access denied")
+        return service, principal
 
     @app.get("/health", response_model=HealthResponse)
     async def health(request: Request, response: Response) -> HealthResponse:
         service = request.app.state.service
-        ready = service.retrieval_initialized
+        ready = service.retrieval_initialized and service.authorization_initialized
         response.status_code = 200 if ready else 503
         return HealthResponse(
-            status="ready" if ready else "not_ready", retrieval_initialized=ready,
+            status="ready" if ready else "not_ready", retrieval_initialized=service.retrieval_initialized,
             generation_configured=service.generation_configured,
+            authorization_initialized=service.authorization_initialized,
             preparation_seconds=service.preparation_seconds,
         )
 
     @app.post("/search", response_model=SearchResponse)
     def search(body: SearchRequest, request: Request) -> SearchResponse:
         started = perf_counter()
-        service = ready_service(request)
+        service, principal = authorized_service(request)
         try:
-            results, retrieval_seconds = service.search(body.query, body.top_k)
+            results, retrieval_seconds = service.search(body.query, body.top_k, principal)
         except (OSError, ValueError, RuntimeError) as error:
             logger.error("Search request failed (%s)", type(error).__name__)
             raise HTTPException(status_code=500, detail="Search request failed") from None
@@ -133,11 +150,11 @@ def create_app(service_factory: Callable[[], SearchService] = load_service) -> F
     @app.post("/ask", response_model=AskResponse)
     def answer(body: AskRequest, request: Request) -> AskResponse:
         started = perf_counter()
-        service = ready_service(request)
+        service, principal = authorized_service(request)
         if not service.generation_configured:
             raise HTTPException(status_code=503, detail="Generation configuration unavailable")
         try:
-            result = service.answer(body.question)
+            result = service.answer(body.question, principal)
         except (OSError, ValueError, RuntimeError) as error:
             logger.error("Answer request failed (%s)", type(error).__name__)
             raise HTTPException(status_code=502, detail="Answer request failed") from None
