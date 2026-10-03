@@ -1,5 +1,14 @@
 # Current data flow
 
+## Container startup and shutdown (M9)
+
+1. Prepare missing corpus/encoder/reranker artifacts using the existing host CLI commands in README. Image building downloads Python dependency wheels, not SciFact or model weights. `.dockerignore` limits build inputs to application source and packaging files.
+2. `docker compose build` builds the dependency layer from `pyproject.toml`/`uv.lock`, then installs the package. Only the resulting runtime environment is copied into the final image.
+3. Compose mounts the existing local directories, explicitly supplies generation environment variables, and publishes host `127.0.0.1:8000` to container port 8000. Missing mount directories are rejected instead of silently created.
+4. Uvicorn starts one worker in `/app`; unchanged lifespan reads mounted data/model snapshots, verifies/reuses the dense cache, and prepares resources once. A stale cache can be regenerated on the writable parent mount; model weights remain read-only. Offline flags prohibit fetching missing weights.
+5. Host HTTP requests follow the existing M8 flow. `/ask` calls configured host Ollama through Docker Desktop's host address; container loopback cannot address the host. Healthchecks read readiness only and do not validate generator connectivity.
+6. `docker compose down --timeout 90` signals Uvicorn, allowing in-flight work and lifespan cleanup before removing the container/network. Bind-mounted data survives; temporary container cache state does not. No actual container flow was executed during M9 because Docker was unavailable.
+
 ## HTTP requests (M8)
 
 1. Uvicorn invokes `api.create_app`; lifespan loads the local corpus, unchanged chunks/indexes, verified dense cache, encoder, reranker, and optional generator once. Run from the repository root; no dataset download is performed by startup. Model/cache misses follow the existing preparation behavior.

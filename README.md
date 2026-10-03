@@ -2,7 +2,7 @@
 
 A retrieval engineering project built in tested milestones, with explicit algorithms, reproducible evaluation, and documented trade-offs.
 
-**Status: Milestone 8 adds a local FastAPI service; the completed retrieval and bounded SciFact claim-verification benchmarks are preserved.** CLI and HTTP access share BM25, exact dense search, document RRF, cross-encoder reranking, and a thin retrieval-augmented generation (RAG) layer with source-reference validation. Retrieval is evaluated on the same 300-query SciFact test split. API and generation tests run offline with fakes. A separate bounded SciFact stance evaluation adds explicit SUPPORT/CONTRADICT/ABSTAIN output and resumable reports. Frozen retrieval source and artifacts are preserved.
+**Status: Milestone 9 adds Docker deployment configuration; container execution is unverified on this machine.** CLI and HTTP access share BM25, exact dense search, document RRF, cross-encoder reranking, and a thin retrieval-augmented generation (RAG) layer with source-reference validation. Retrieval is evaluated on the same 300-query SciFact test split. API and generation tests run offline with fakes. A separate bounded SciFact stance evaluation adds explicit SUPPORT/CONTRADICT/ABSTAIN output and resumable reports. Frozen retrieval source and artifacts are preserved.
 
 - Verified, revision-pinned [BEIR SciFact](https://github.com/beir-cellar/beir/wiki/Datasets-available) ingestion and deterministic overlapping chunks.
 - Explicit BM25 and revision-pinned `sentence-transformers/all-MiniLM-L6-v2` with cached 384-dimensional CPU embeddings.
@@ -84,6 +84,44 @@ Invoke-RestMethod http://127.0.0.1:8000/ask -Method Post -ContentType "applicati
 Invalid input returns 422; unavailable retrieval or generation configuration returns 503. Search failures return sanitized 500 responses, and expected answer-pipeline failures return sanitized 502 responses. CPU inference is serialized within one process; preparation is separate from request timings. Use one worker locally; reloads or additional workers load another model set. No authentication or production deployment is provided.
 
 The local M8 smoke returned 200 for health, real-corpus search, and qwen2.5:3b ask. Preparation took 26.60 s, search 2.60 s, and ask 38.81 s (36.45 s generation). The answer omitted inline markers, and the unchanged validator visibly reported missing citations. These are one-run operational observations, not an answer-quality benchmark.
+
+## Docker deployment
+
+Requires Docker Desktop in Linux-container mode, the prepared local data/model caches from Local setup, and host Ollama serving qwen2.5:3b for `/ask`. The image targets Linux amd64. It contains the application and locked runtime dependencies, not datasets or model weights; this deployment relies on mounts and is not standalone.
+
+If artifacts are missing, prepare them on the host with Python/uv before starting Docker (unset Hugging Face offline flags for initial downloads):
+
+```powershell
+uv run --locked --cache-dir .uv-cache enterprise-search download
+uv run --locked --cache-dir .uv-cache enterprise-search prepare-dense
+uv run --locked --cache-dir .uv-cache enterprise-search prepare-reranker
+```
+
+| Host directory | Container directory | Access |
+|---|---|---|
+| `data/scifact` | `/app/data/scifact` | Read-only corpus/query files |
+| `data/dense` | `/app/data/dense` | Writable, regenerable embedding cache |
+| `data/dense/models` | `/app/data/dense/models` | Read-only nested encoder cache |
+| `data/reranker/models` | `/app/data/reranker/models` | Read-only reranker cache |
+
+Existing pinned models are reused directly; the global Hugging Face cache is not needed. Auxiliary cache files use container `/tmp` and are discarded with the container. Offline model flags prevent runtime weight downloads. Mount sources must already exist. Default container UID/GID is 10001; on Unix, set `CONTAINER_UID`/`CONTAINER_GID` to the cache owner's non-root IDs and ensure `data/dense` is writable.
+
+From the repository root:
+
+```powershell
+$env:GENERATION_ENDPOINT = "http://host.docker.internal:11434/v1/chat/completions"
+$env:GENERATION_MODEL = "qwen2.5:3b"
+docker compose build
+docker compose up -d --wait --wait-timeout 300
+Invoke-RestMethod http://127.0.0.1:8000/health
+Invoke-RestMethod http://127.0.0.1:8000/search -Method Post -ContentType "application/json" -Body '{"query":"Radioiodine treatment of non-toxic multinodular goitre reduces thyroid volume.","top_k":3}'
+Invoke-RestMethod http://127.0.0.1:8000/ask -Method Post -ContentType "application/json" -Body '{"question":"Does radioiodine treatment reduce thyroid volume in non-toxic multinodular goitre?"}'
+docker compose down --timeout 90
+```
+
+Compose explicitly forwards generation settings from shell variables or its `.env` interpolation file. Shell values take precedence; `.env.example` is a reference, not runtime loading logic. Unset endpoint/model values default to the host-Ollama example; explicitly blank values disable generation. `localhost` inside the container refers to that container, so host Ollama needs the configured host address. Host port 8000 is bound only to `127.0.0.1`.
+
+One Uvicorn worker reuses the existing lifespan/resources and inference lock. The standard-library healthcheck calls only `/health`; generation configuration is not a connectivity check. Shutdown releases application resources and removes the container/network, preserving bind-mounted files. Docker was unavailable during M9: Python tests and package build passed, but image size, container preparation time, and container health/search/ask remain unverified. See [Docker decisions](docs/DESIGN_DECISIONS.md) for reproducibility limits.
 
 ## Engineering documentation
 

@@ -1,5 +1,13 @@
 # Current architecture
 
+## Docker boundary (M9)
+
+One Compose service wraps the existing FastAPI application in a Linux amd64 Python 3.12 image. The build stage installs runtime dependencies from unchanged `uv.lock` and a non-editable application package; the final stage retains that environment, without uv, development dependencies, host data, tests, or result artifacts. It runs as a non-root user and starts one Uvicorn worker on container port 8000.
+
+Four bind mounts supply existing SciFact data, the writable dense embedding cache, and read-only encoder/reranker model directories. The encoder mount is nested inside `data/dense` to protect weights while allowing NPZ regeneration. Auxiliary Hugging Face cache state lives in ephemeral `/tmp`; the host global cache is not mounted. Ollama remains a host service accessed through `GENERATION_ENDPOINT`. The container healthcheck reads `/health`, never running inference or contacting Ollama. Application resources, locking, prompts, and benchmark artifacts are unchanged.
+
+Docker execution is pending: no CLI was available on the M9 development machine. This describes implemented configuration, not a verified container deployment.
+
 The project is a single Python 3.12 package with CLI and FastAPI entry points, lexical/exact dense indexes, document RRF, a cross-encoder reranker, and an independent HTTP answer-generation boundary.
 
 ```text

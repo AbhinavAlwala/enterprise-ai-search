@@ -1,5 +1,16 @@
 # Code walkthrough
 
+## Docker files (M9)
+
+- `Dockerfile`: pinned Python 3.12.15/uv 0.11.26 release tags, dependency-first BuildKit caching, `uv sync --locked --no-dev`, and a final non-editable install. A second stage copies only the installed environment, creates UID/GID 10001, sets offline model flags, and starts one Uvicorn worker. No application source changed.
+- `.dockerignore`: allowlists packaging inputs/source, then excludes generated Python files and secret formats. Git history, local data/model caches, results, tests, editor files, and host environments never enter the build context.
+- `compose.yaml`: one application service, Linux amd64, loopback-only host port, explicit generation-variable forwarding, four existing-directory bind mounts, and a 90-second shutdown grace period. Container UID/GID can be overridden for Unix cache ownership.
+- `.env.example`: distinguishes host versus Docker Desktop endpoint addresses. Compose resolves environment substitutions and explicitly forwards the three generation fields; Python still reads only its process environment.
+
+Build/start/smoke/shutdown commands are in README. To build without Compose: `docker build --platform linux/amd64 -t enterprise-ai-search:m9 .`. To inspect size: `docker image inspect enterprise-ai-search:m9 --format '{{.Size}}'` (bytes). `docker compose logs search` shows startup/preparation, while `GET /health` reports preparation seconds once ready. Use `docker compose config --quiet` to validate configuration without printing interpolated secrets.
+
+The healthcheck uses installed Python's `urllib.request`, with a 3-second request timeout, 30-second interval, 180-second startup grace, and three retries. HTTP 503 or connection failure marks the service unhealthy; health status alone does not restart it. Missing caches, bind permissions, and host connectivity need actual Docker verification. During M9 the 327 offline tests and package build passed; Docker commands could not run. No text-matching Dockerfile tests were added.
+
 ## HTTP boundary (M8)
 
 - `api.py`: Pydantic request/response models, bounded text/top-k validation, sanitized HTTP errors, and `create_app(service_factory=load_service)`. Its lifespan prepares once and calls `close` at shutdown. Only the three business routes expose existing operations.

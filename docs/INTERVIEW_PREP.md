@@ -1,5 +1,25 @@
 # Interview preparation
 
+## M9 questions
+
+**Image versus container?** The image packages the installed application and runtime dependencies. A container runs that image with process, network, and writable state; mounted host data remains outside it.
+
+**Dockerfile, layers, and build caching?** The Dockerfile installs locked dependencies before source. Unchanged dependency layers can be reused after source edits. A builder stage contains uv/build inputs, while the final stage contains only the runtime environment. Release tags/lockfiles improve repeatability but do not make the whole image bit-identical.
+
+**Why `.dockerignore` and external weights?** Only required source/packaging inputs enter the build context. Large weights/data would increase image size and duplicate existing artifacts; bind mounts reuse prepared files without copying. Deployment therefore requires those files, rather than being standalone.
+
+**Bind mount versus volume, and what can write?** A bind mount exposes a specific host path; a named volume is managed by Docker. This Compose file uses bind mounts: SciFact and weights are read-only, the dense NPZ parent directory is writable/regenerable, and auxiliary `/tmp` cache state is temporary. Host ownership still matters for the non-root process.
+
+**Why doesn't localhost reach host Ollama?** Each container has its own loopback/network. Docker Desktop's `host.docker.internal` reaches the host; `GENERATION_ENDPOINT` selects that URL. Published port 8000 provides the opposite direction: host clients reaching the API.
+
+**How do environment variables and healthchecks work?** Compose explicitly forwards generation variables; Python does not load `.env`. The healthcheck calls only `/health` and observes retrieval readiness. Configured generation is not proof of a reachable model, and an unhealthy status alone does not restart the container.
+
+**Why one worker and how does shutdown work?** Each worker loads another model/index set. One worker preserves shared resource reuse and serialized inference. Compose signals Uvicorn, lifespan releases references, then the container/network are removed; bind-mounted files survive.
+
+**What remains unverified?** No Docker CLI was available for M9, so image size/build, Linux cache permissions/compatibility, startup time, and host-Ollama HTTP flow have no measured results. Existing offline Python tests/package build succeeded. Do not reuse M8 host timings as Docker timings.
+
+**Concepts before permission-aware retrieval?** Image/container isolation; reproducible dependencies versus reproducible data; bind mounts and ownership; network boundaries; explicit environment configuration; process/model lifecycle; readiness versus upstream availability; and API deployment versus user/document access control. M9 adds no permission enforcement.
+
 ## M8 questions
 
 **CLI versus HTTP API?** CLI commands run locally and print JSON, usually preparing resources per invocation. HTTP clients send requests to a persistent Uvicorn process; FastAPI validates inputs and returns JSON/status codes while reusing prepared resources.

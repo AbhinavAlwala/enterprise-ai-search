@@ -1,0 +1,37 @@
+services:
+  search:
+    build: .
+    image: enterprise-ai-search:m9
+    platform: linux/amd64
+    user: "${CONTAINER_UID:-10001}:${CONTAINER_GID:-10001}"
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      GENERATION_ENDPOINT: "${GENERATION_ENDPOINT-http://host.docker.internal:11434/v1/chat/completions}"
+      GENERATION_MODEL: "${GENERATION_MODEL-qwen2.5:3b}"
+      GENERATION_API_KEY: "${GENERATION_API_KEY:-}"
+    volumes:
+      - type: bind
+        source: ./data/scifact
+        target: /app/data/scifact
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./data/dense
+        target: /app/data/dense
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./data/dense/models
+        target: /app/data/dense/models
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./data/reranker/models
+        target: /app/data/reranker/models
+        read_only: true
+        bind:
+          create_host_path: false
+    stop_grace_period: 90s

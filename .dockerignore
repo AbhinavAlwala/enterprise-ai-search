@@ -1,0 +1,15 @@
+# Only packaging inputs and application source belong in the build context.
+**
+!Dockerfile
+!.dockerignore
+!pyproject.toml
+!uv.lock
+!README.md
+!src/
+!src/**
+**/__pycache__
+**/*.py[cod]
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
