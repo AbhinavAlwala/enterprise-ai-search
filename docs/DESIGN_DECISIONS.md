@@ -12,7 +12,7 @@ CI never starts the application, because startup requires assets deliberately ex
 
 Keep uv.lock authoritative without dependency upgrades. Python 3.12 selects a minor version, not an identical patch/build. The Docker base and uv image use release tags, not immutable digests; OS packages and the permitted Hatchling build range can vary. Pinning an exact image digest would freeze base content, but does not alone freeze every later network/build input. No bit-identical build claim is made.
 
-README is a measured overview; detailed commands move to a runbook, artifact provenance/sizes/hashes live beside frozen results, and interview prep is consolidated into 22 questions grounded in implementation. All 13 JSON reports remain intact (5,953,178 LF-normalized bytes total; largest 2,809,174 bytes), including public-corpus evidence/generation traces for claim verification. No local data/models/cache/secret files belong in Git or image inputs. No LICENSE exists; selecting one remains the owner's decision. Metadata changes only describe the existing project accurately.
+README is a measured overview; detailed commands move to a runbook, artifact provenance/sizes/hashes live beside frozen results, and interview prep is consolidated into 22 questions grounded in implementation. All 13 JSON reports remain intact (5,953,178 LF-normalized bytes total; largest 2,809,174 bytes), including public-corpus evidence/generation traces for claim verification. No local data/models/cache/secret files belong in Git or image inputs. The project uses the [MIT License](../LICENSE). Metadata changes only describe the existing project accurately.
 
 ## M11: bounded observation around unchanged behavior
 

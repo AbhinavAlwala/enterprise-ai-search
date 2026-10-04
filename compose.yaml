@@ -1,7 +1,7 @@
 services:
   search:
     build: .
-    image: enterprise-ai-search:m9
+    image: enterprise-ai-search:latest
     platform: linux/amd64
     user: "${CONTAINER_UID:-10001}:${CONTAINER_GID:-10001}"
     ports:

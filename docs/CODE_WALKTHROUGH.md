@@ -9,7 +9,7 @@ Final audit: the API distinguishes internal ask failures (500/unexpected error) 
 - `docs/RUNBOOK.md`: complete Linux/PowerShell preparation, header transport, generation configuration, metrics, Docker mounts/networking, and shutdown commands. `results/README.md` documents immutable artifacts, their sizes/checksums, complete M7 metrics, and distinctions from operational smokes.
 - `pyproject.toml`: accurate project description, unchanged Python 3.12 requirement/dependency versions. `uv.lock` stays authoritative. `.gitignore` also protects stray model/checkpoint/cache/key files; `.dockerignore` already restricts image inputs.
 
-No application source or result JSON changes accompany M12. Hosted CI success is separate from locally executed tests/builds. Source/wheel building may use unpinned-within-range Hatchling build dependencies; lockfiles do not make the Docker OS/base tag bit-identical. No LICENSE exists and no license choice is inferred.
+No application source or result JSON changes accompany M12. Hosted CI success is separate from locally executed tests/builds. Source/wheel building may use unpinned-within-range Hatchling build dependencies; lockfiles do not make the Docker OS/base tag bit-identical. The project uses the [MIT License](../LICENSE).
 
 ## Observability code (M11)
 
@@ -41,7 +41,7 @@ The runbook contains startup/header examples. Missing/malformed policy configura
 - `compose.yaml`: one application service, Linux amd64, loopback-only host port, explicit generation-variable forwarding, four directory mounts plus M10's read-only demo policy file/path, and a 90-second shutdown grace period. Container UID/GID can be overridden for Unix cache ownership.
 - `.env.example`: distinguishes host versus Docker Desktop endpoint addresses and documents the required host policy path. Compose forwards the three generation fields and sets its mounted policy path; Python still reads only its process environment.
 
-Build/start/smoke/shutdown commands are in the runbook. To build without Compose: `docker build --platform linux/amd64 -t enterprise-ai-search:m9 .`. To inspect size: `docker image inspect enterprise-ai-search:m9 --format '{{.Size}}'` (bytes). `docker compose logs search` shows startup/preparation, while `GET /health` reports preparation seconds once ready. Use `docker compose config --quiet` to validate configuration without printing interpolated secrets.
+Build/start/smoke/shutdown commands are in the runbook. To build without Compose: `docker build --platform linux/amd64 -t enterprise-ai-search:latest .`. To inspect size: `docker image inspect enterprise-ai-search:latest --format '{{.Size}}'` (bytes). `docker compose logs search` shows startup/preparation, while `GET /health` reports preparation seconds once ready. Use `docker compose config --quiet` to validate configuration without printing interpolated secrets.
 
 The healthcheck uses installed Python's `urllib.request`, with a 3-second request timeout, 30-second interval, 180-second startup grace, and three retries. HTTP 503 or connection failure marks the service unhealthy; health status alone does not restart it. The owner reported successful M9 build/mount/HTTP verification after Docker was unavailable in the initial pass. M10's updated container was not run here; rebuild it for the new code. No Docker timings or image size are claimed.
 
