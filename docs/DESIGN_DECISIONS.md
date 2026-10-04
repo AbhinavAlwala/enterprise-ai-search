@@ -1,5 +1,15 @@
 # Design decisions
 
+## M12: CI and release-quality documentation
+
+One Ubuntu 24.04/Python 3.12 workflow is sufficient: locked sync, offline mocked tests, source/wheel build, whitespace checks, and Docker build-only. [uv's CI guidance](https://docs.astral.sh/uv/guides/integration/github/) supports pinned uv and cache reuse. Actions are pinned to verified release commit SHAs; permissions are read-only and checkout does not retain credentials. Model/data offline flags plus an HTTP test guard prevent accidental runtime downloads/calls. Package/image pulls during initial dependency installation are allowed; this is not a network-isolated installation.
+
+CI never starts the application, because startup requires assets deliberately excluded from the image. Docker build validation checks construction/package compatibility, not mounts, permissions, runtime readiness, or host Ollama. No image/package publication, new linter, real generation, or benchmark rerun is included. Hosted workflow execution must be observed after push/PR; local verification is reported separately.
+
+Keep uv.lock authoritative without dependency upgrades. Python 3.12 selects a minor version, not an identical patch/build. The Docker base and uv image use release tags, not immutable digests; OS packages and the permitted Hatchling build range can vary. Pinning an exact image digest would freeze base content, but does not alone freeze every later network/build input. No bit-identical build claim is made.
+
+README is a measured overview; detailed commands move to a runbook, artifact provenance/sizes/hashes live beside frozen results, and interview prep is consolidated into 22 questions grounded in implementation. All 13 JSON reports remain intact (6,129,866 bytes total; largest 2,914,691 bytes), including public-corpus evidence/generation traces for claim verification. No local data/models/cache/secret files belong in Git or image inputs. No LICENSE exists; selecting one remains the owner's decision. Metadata changes only describe the existing project accurately.
+
 ## M11: bounded observation around unchanged behavior
 
 Observability helps explain system behavior; logs describe individual events, while metrics aggregate counts/durations. A UUIDv4 correlates request, response, and error records without deriving IDs from identity or content. Accept only one canonical lowercase RFC UUIDv4 (36 ASCII characters); otherwise replace it without rejecting the request. Caller IDs remain untrusted correlation metadata, may repeat, and must not contain secrets. They are neither authentication nor metric labels.

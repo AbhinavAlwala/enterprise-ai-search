@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "enterprise-ai-search"
 version = "0.1.0"
-description = "A local BM25 document search baseline using the BEIR SciFact corpus."
+description = "Evaluated hybrid retrieval and permission-aware RAG with FastAPI and request observability."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [

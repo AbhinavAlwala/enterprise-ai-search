@@ -1,5 +1,11 @@
 # Current data flow
 
+## Final end-to-end map
+
+See [the architecture diagram](ARCHITECTURE.md) for the complete current request path: request ID/body validation -> trusted upstream identity -> BM25+dense -> document RRF -> authorization filter -> cross-encoder -> search response OR numbered RAG evidence -> external generator -> citation-reference validation -> structured logs/metrics. No protected evidence enters reranking or generation before authorization. Health and metrics bypass inference; the privileged scientific CLI bypasses the HTTP identity boundary intentionally.
+
+CI is separate from this runtime flow: checkout -> Python/uv -> locked dependency sync -> offline fixture tests -> source/wheel build -> whitespace checks -> image build only. It never downloads SciFact/weights, starts the API/Ollama, or runs benchmarks. Initial package and image downloads remain necessary on a cold runner. See [the runbook](RUNBOOK.md) for clone setup and manual runtime checks.
+
 ## Request observation (M11)
 
 1. Before routing, middleware validates a single canonical lowercase UUIDv4 `X-Request-ID`; invalid/missing/duplicate IDs receive `uuid4()`. Duration starts with monotonic `perf_counter`, not a wall-clock timestamp.

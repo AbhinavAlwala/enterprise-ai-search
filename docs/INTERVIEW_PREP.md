@@ -1,289 +1,53 @@
 # Interview preparation
 
-## M11 questions
+Use these questions to explain the code, the executed evidence, and the limits. Follow [the file walkthrough](CODE_WALKTHROUGH.md) for implementation locations and [result provenance](../results/README.md) for complete measurements.
 
-**Observability, logging, and metrics?** Observability helps explain behavior. Logs record one request/error/lifecycle event; metrics summarize rates/counts/durations across requests. Neither measures retrieval or answer correctness.
+## Retrieval and evaluation
 
-**What does a request ID establish?** It correlates a response with safe request/error logs. Ours is a canonical UUIDv4, generated or accepted under strict syntax rules, never derived from a tenant or query. Caller IDs can repeat and do not authenticate anyone.
+**1. Why start with BM25?** It is an interpretable lexical baseline with explicit corpus statistics and no model download. Term frequency rewards matches, IDF rewards rarer terms, saturation limits repetition, and length normalization reduces long-passage advantage. BM25 scores are ranking signals, not confidence or truth. Code: `bm25.py`.
 
-**Why structured logs and no payloads?** JSON fields can be searched/parsed without interpreting prose. Queries, evidence, answers, identities, ACLs, and exception messages could leak protected data. We log bounded route/method/status, ID, durations, flags, and error type; raw Uvicorn URL access logs are suppressed.
+**2. What is a document versus a chunk?** A document is a stable source record; a chunk is a searchable passage with a parent ID. We combine title/abstract, normalize NFC/whitespace, and form deterministic 180-word windows with 30-word overlap. Chunk IDs depend on parent and window number. Chunking localizes matching but overlap duplicates content; it is not assumed to improve short abstracts. Code: `models.py`, `text.py`.
 
-**What is metric cardinality?** The number of distinct label combinations. User/query/document/request labels grow without bounds and can expose sensitive values. We use five fixed route buckets and six status-family buckets, with no identity labels.
+**3. Why dense retrieval?** MiniLM embeddings can retrieve paraphrases without shared words. The bi-encoder separately embeds query/passages, enabling corpus caching. We normalize 384-dimensional vectors so dot products equal cosine; exact scanning is simple for this corpus. Semantic similarity can miss precise terms/negation and does not prove agreement. Code: `dense.py`.
 
-**How do latency breakdowns differ?** Request duration includes validation, serialization/body handling, and lock wait. Existing retrieval/reranking and generation timings measure pipeline stages; preparation is separate. A monotonic clock measures elapsed time despite wall-clock changes. Operational means are not benchmark quality or latency percentiles.
+**4. How is the embedding cache reproducible?** Its identity includes pinned model/configuration, ordered chunk content/IDs, preprocessing, and encoding runtime versions. Shape, norms, finite values, and checksum are checked; stale/corrupt caches rebuild atomically. NPZ loading disables pickle. Weight revisions, dependency versions, data checksums, and cache identity are different reproducibility layers.
 
-**How are concurrency and reset handled?** A ContextVar keeps request traces distinct across async tasks/handler threads. A short lock protects aggregate updates and snapshots. Metrics live in one app/process; restart resets them, and extra workers/replicas have independent counters.
+**5. Why RRF instead of adding scores?** BM25 and cosine have incompatible scales. A document gets `1/(60+rank)` per component, with equal weights and 100 unique candidates each. Rank 1 in both contributes `2/61`; missing contributes zero. Parent deduplication prevents overlapping chunks giving extra votes. k/weights were fixed before evaluation. Code: `hybrid.py`.
 
-**What does an error count mean?** Identity-denial counts cover 400/403 rejections, not hidden documents. Unexpected errors include internal 500s; configuration 503 is availability. Generation failures require an actual failed/invalid generator call, not any ask failure. An uncited answer is a citation issue, not a generation transport failure.
+**6. Why rerank, and what is the cost?** A cross-encoder jointly processes query/passage for richer interaction, unlike independently cached bi-encoder vectors. It scores only the top 50 hybrid documents' existing distinct representatives, taking each parent's maximum raw logit. No extra chunks or score blending. nDCG@10 improved 0.680262 -> 0.708730, while mean online latency rose 93.155 -> 3378.577 ms in separate local CPU runs. Code: `reranker.py`.
 
-**What remains absent?** Durable storage, cross-process aggregation, percentiles, alerts, collectors, authentication, and general answer correctness. The metrics endpoint is cheap but unauthenticated and should stay inside the trusted boundary. Metrics polls count after their snapshots.
+**7. Why candidate Recall@50?** It measures how much judged relevant content is available before reranking. The mean was 0.933000; missed candidates cannot be recovered by any reranker. This is a per-query opportunity ceiling, not achieved top-ten quality. Permission filtering can reduce it further without a new measured tenant benchmark.
 
-## M10 questions
+**8. Explain Recall, MRR, and nDCG.** Recall measures the fraction of judged positives retrieved by a cutoff. MRR emphasizes the first positive's reciprocal rank. nDCG rewards gains across the ranking, discounts later positions, and normalizes by an ideal ranking. We deduplicate chunks to parents because qrels label documents, macro-average all 300 test queries, and retain zero-hit queries. Code: `evaluation.py` and the dense/hybrid/reranked evaluation modules.
 
-**Authentication versus authorization?** Authentication establishes identity; authorization checks permission. We assume an upstream gateway verifies and replaces `X-Tenant-ID`, `X-Principal-ID`, and optional `X-Groups`. The headers alone are spoofable and do not authenticate callers.
+**9. What makes the measurements defensible, and limited?** Same test split/policies, frozen defaults, pinned revisions/checksums, per-query records, source/input hashes, deterministic ties, and no test-driven tuning. Incomplete qrels, one small scientific corpus, token truncation, representative selection, and separate-run CPU timings limit generalization. The dense model truncated 3,478 of 8,778 chunks; cross-encoder truncation is not separately audited.
 
-**Tenant, principal, group, and ACL?** A tenant is an isolation boundary; a principal is a caller within it; groups grant shared membership. A document ACL names its owning tenant and either tenant-wide visibility or explicit principal/group grants. Tenant equality is always checked first, even when two tenants reuse a principal/group name or have identical document text.
+## RAG and claim verification
 
-**Default deny versus fail closed?** Default deny means an unlisted document is inaccessible. Fail closed means malformed/missing policy configuration disables protected routes, rather than granting access on failure. Unknown tenants get generic 403; malformed identity gets 400; unavailable policies get 503. Errors never name inaccessible documents.
+**10. Why citation validity is not correctness?** `[n]` can map to a supplied document/chunk while the answer misreads or contradicts it. Validation checks source references, not entailment, claim coverage, truth, or prompt-injection resistance. Missing/invalid markers remain visibly flagged while the answer is preserved. Normal ask and M7 use different citation representations. Code: `rag.py`, `claim_verification.py`.
 
-**Where is permission filtering enforced?** The service's `AuthorizedIndex` removes denied documents from the frozen global hybrid top 50 before cross-encoder inference. Both search and M6 ask use it, so only authorized winners become context, model input, results, and source mappings. Filtering only the final answer would expose protected text earlier.
+**11. Why separate free-form RAG from claim verification?** Free-form answers need reference facts/rubrics for semantic scoring. M7 instead evaluates 188 explicit SciFact SUPPORT/CONTRADICT metadata labels, with ABSTAIN as a model action. Qrels indicate relevance, not stance; empty metadata is not gold abstention. No sentence-level rationale scoring or external judge is implemented.
 
-**How do permissions affect recall?** Filtering 50 candidates without replacement can leave few or zero passages. A useful authorized document outside that pool stays missed. Separate tenant indexes could reduce competition but would change preparation/retrieval; this milestone preserves the scientific implementation.
+**12. Why high conditional accuracy but low coverage?** qwen2.5:3b answered only 34/188 claims, with 28 correct: 0.823529 non-abstained accuracy at 0.180851 coverage. Its 154 abstentions reduce overall accuracy to 0.148936; macro F1 is 0.188228. CONTRADICT recall was 1/64 (0.015625). This measures conservative bounded classification, not high general answer accuracy.
 
-**How is leakage tested?** Offline fakes record actual predictor pairs and generator messages. Tests check denied IDs/text are absent, identical cross-tenant passages remain distinct, citations map only to supplied authorized sources, and missing/malformed identity/policies cannot broaden access. All 400 tests passed, including 73 authorization cases.
+**13. Did structured output solve grounding?** No. JSON schema corrected serialization and a required integer citation array corrected reference protocol, without changing verdict definitions. Request/parsing failures were zero in the full benchmark, but citation validity 0.978723 still does not prove entailment. Gold-document presence 0.952128 does not establish that its winning passage contains the rationale. Code: `generation.py`, `claim_verification.py`.
 
-**What did the real smoke establish?** The same query returned A's three IDs and B's two distinct IDs. One A ask supplied only A's evidence, but answered insufficient evidence with missing citations visibly flagged. This verifies source-flow isolation, not answer truth or retrieval quality. The SciFact tenant overlay is synthetic, not benchmark ground truth.
+**14. How are long runs controlled?** Sequential generation, a five-claim runtime gate, input/settings/source fingerprints, atomic checkpoints, and strict resume compatibility. Failures/abstentions remain separate. The completed report took 4981.39 s; an explicitly authorized temporary 100-minute gate enabled it, then 90 minutes was restored. Historical identities/results are never rewritten to match later code. Code: `claim_evaluation.py`.
 
-**What remains unsecured?** No authentication/gateway, policy hot reload, physical index separation, side-channel protection, or prompt-injection defense. The process and scientific CLI retain privileged corpus access. Authorization controls supplied evidence/provenance; it cannot guarantee the generator's arbitrary output or memory contains no unrelated information.
+## Serving, security, and operations
 
-## M9 questions
+**15. Why authorization before reranking/generation?** Hiding final results is too late once protected text reached a model. The service filters hybrid top 50 before predictor pairs, context, generator, and provenance. Fake backends record their actual inputs; tests cover identical cross-tenant text, missing policies, and source mappings. No backfill means fewer results and possible recall loss. Code: `authorization.py`, `service.py`.
 
-**Image versus container?** The image packages the installed application and runtime dependencies. A container runs that image with process, network, and writable state; mounted host data remains outside it.
+**16. Authentication versus authorization?** Authentication establishes identity; authorization determines access. Here headers assume a trusted gateway verifies/replaces them; direct callers can spoof them. Tenant equality precedes tenant-wide/principal/group grants. Missing ACLs deny access; malformed/missing policies fail closed. The SciFact ACL overlay is synthetic demo metadata, not benchmark ground truth.
 
-**Dockerfile, layers, and build caching?** The Dockerfile installs locked dependencies before source. Unchanged dependency layers can be reused after source edits. A builder stage contains uv/build inputs, while the final stage contains only the runtime environment. Release tags/lockfiles improve repeatability but do not make the whole image bit-identical.
+**17. Why one Uvicorn worker?** Lifespan loads models/indexes once per process, not across processes. More workers duplicate memory and counters. One worker shares a lock that serializes expensive search/ask, while async health/metrics remain cheap. This improves reuse, not throughput. API request limits/sanitized errors do not amount to production hardening. Code: `api.py`, `service.py`.
 
-**Why `.dockerignore` and external weights?** Only required source/packaging inputs enter the build context. Large weights/data would increase image size and duplicate existing artifacts; bind mounts reuse prepared files without copying. Deployment therefore requires those files, rather than being standalone.
+**18. Why keep Ollama outside Docker?** The application image contains Python runtime/application dependencies, not a downloaded LLM or dataset. Existing read-only mounts reuse pinned weights; the dense cache can regenerate. `host.docker.internal` reaches host Ollama on Docker Desktop, while container localhost refers to itself. Environment forwarding is explicit; Python does not load `.env`. Code: Dockerfile/Compose.
 
-**Bind mount versus volume, and what can write?** A bind mount exposes a specific host path; a named volume is managed by Docker. This Compose file uses bind mounts: SciFact and weights are read-only, the dense NPZ parent directory is writable/regenerable, and auxiliary `/tmp` cache state is temporary. Host ownership still matters for the non-root process.
+**19. Why request IDs and structured logs?** A canonical opaque UUIDv4 correlates response/request/error events without deriving it from identity/query. JSON fields are machine-readable. IDs can repeat when caller supplied and are not authentication or metric labels. Logs omit payloads, evidence, identities, ACLs, keys, raw URLs, and exception messages. Code: `observability.py`.
 
-**Why doesn't localhost reach host Ollama?** Each container has its own loopback/network. Docker Desktop's `host.docker.internal` reaches the host; `GENERATION_ENDPOINT` selects that URL. Published port 8000 provides the opposite direction: host clients reaching the API.
+**20. Why bounded process-local metrics?** Fixed route/status buckets prevent unbounded labels and sensitive identity/query leaks. A short lock protects counters/means; restart resets them and workers/replicas are independent. There is no durability, histogram, percentile, alerting, or external collector. `perf_counter` measures durations without wall-clock jumps; request timing includes lock wait/body handling, unlike stage timings. `/metrics` stays inside the trusted boundary.
 
-**How do environment variables and healthchecks work?** Compose explicitly forwards generation variables and sets M10's mounted policy path; Python does not load `.env`. The healthcheck calls only `/health` and observes retrieval/policy readiness. Configured generation is not proof of a reachable model, and an unhealthy status alone does not restart the container.
+**21. What does CI prove?** Offline fakes/mocks validate behavior without local assets or generation. Locked sync fixes resolved Python versions; package builds validate packaging; Docker build-only validates construction, not mounts/readiness/host connectivity. CI does no benchmark tuning/evaluation or publication. Hosted workflow success must be observed separately from local command success. Code: `.github/workflows/ci.yml`.
 
-**Why one worker and how does shutdown work?** Each worker loads another model/index set. One worker preserves shared resource reuse and serialized inference. Compose signals Uvicorn, lifespan releases references, then the container/network are removed; bind-mounted files survive.
-
-**What Docker evidence exists?** The owner reported successful M9 build, health/search/host-Ollama ask, and mounted caches after the initial pass lacked Docker. No image-size or startup-time measurement is recorded here. M10 was verified locally; its updated container was not run. Do not reuse host timings as Docker timings.
-
-**Concepts before permission-aware retrieval?** Image/container isolation; reproducible dependencies versus reproducible data; bind mounts and ownership; network boundaries; explicit environment configuration; process/model lifecycle; readiness versus upstream availability; and API deployment versus user/document access control. M9 adds no permission enforcement.
-
-## M8 questions
-
-**CLI versus HTTP API?** CLI commands run locally and print JSON, usually preparing resources per invocation. HTTP clients send requests to a persistent Uvicorn process; FastAPI validates inputs and returns JSON/status codes while reusing prepared resources.
-
-**What does lifespan do?** It initializes indexes/models before serving requests and releases references at shutdown. Models are loaded once per process, not globally across all workers.
-
-**Why request and response models?** Pydantic rejects invalid types, blank text, excess fields, and unbounded top-k before inference. Response models expose public passage/rank/provenance fields without internal index objects.
-
-**How do search and ask differ?** Search ranks stored passages using the frozen hybrid/reranker. Ask uses the same path, passes five sources to the unchanged M6 generator, and reports free-form text plus inline-reference validation. It does not use M7's verification schema.
-
-**What does ready mean?** Retrieval and M10's policy store initialized successfully. Generation configured means endpoint/model settings are valid, not that the endpoint responds. Missing generation configuration returns 503 for ask while search/health remain usable; invalid body input is 422 and identity errors are 400/403.
-
-**Does async make model inference fast?** No. Synchronous search/ask handlers run in worker threads, and a shared lock serializes costly inference. The asynchronous health handler only reads flags. Additional workers consume additional model memory.
-
-**How are API tests offline?** An injected service factory supplies fake candidates, reranker scores, and generated text. Tests still exercise HTTP validation, response mapping, lifecycle, errors, and existing RAG composition without corpus downloads or Ollama.
-
-**What should you understand before Docker?** ASGI server versus application; HTTP methods/status codes; request/response validation; lifespan and per-process resources; environment configuration versus endpoint availability; concurrency and blocking inference; offline test injection; and preparation versus handler/stage timing. Citation syntax is still not an entailment guarantee.
-
-**What is information retrieval, and what is implemented here?**
-
-Information retrieval selects and ranks stored content for a user's information need expressed as a query. Here a local CLI ranks SciFact chunks using lexical BM25 or dense cosine similarity, combines document rankings with RRF, and reranks candidates. A separate RAG layer can request answers from a configured generator; M7 adds bounded SciFact claim verification through the existing local qwen2.5:7b endpoint.
-
-The current pipeline can also rerank the top 50 hybrid documents with a cross-encoder over existing representative passages.
-
-**How does a document differ from a chunk? Why chunk?**
-
-A document is an original source record with a stable source ID, title, and abstract. A chunk is a smaller searchable passage carrying its parent ID. Chunking makes matching more local in long texts. Overlap helps retain boundary context but duplicates evidence; SciFact abstracts are already short, so chunking is not assumed to improve their retrieval quality.
-
-**What does lexical search mean?**
-
-It matches shared tokens rather than inferred meanings. Our query and corpus share case-folded alphanumeric tokenization. Synonyms and morphological variants can fail to match.
-
-**What are TF and IDF?**
-
-TF counts a term's occurrences in a chunk. IDF gives more weight to terms appearing in fewer chunks. Document frequency counts presence once per chunk, not every occurrence. Our index treats chunks as the scoring documents.
-
-**What is BM25's intuition?**
-
-Rare shared terms help more. Repeated occurrences help with diminishing returns, controlled by `k1`. Length normalization, controlled by `b`, reduces the advantage of long chunks that have more opportunities to match. See the exact formula in DESIGN_DECISIONS.
-
-**What does top-k mean?**
-
-Return up to k highest-scoring matching chunks, with one-based ranks. There may be fewer than k matches, or several chunks from one document. Ties are ordered by chunk ID.
-
-**What does a BM25 score mean?**
-
-It is a query-specific lexical ranking signal. It is not a probability, confidence, factual truth, or a quality metric. Scores should not be compared directly across queries, corpora, or chunking choices. A high-scoring passage can contradict the query or be irrelevant.
-
-**Trace a query through the code.**
-
-`cli.main` reads local documents with `dataset.load_corpus`, creates windows with `text.chunk_documents`, builds `bm25.BM25Index`, calls `search`, and prints `SearchResult` records as JSON. Query files and qrels do not influence ordinary CLI search.
-
-**How are edge cases and reproducibility handled?**
-
-Empty corpora/queries and unmatched terms return no results. Invalid parameters, malformed records, duplicate IDs, and empty-token index chunks are rejected. Revision-pinned downloads have checksums; `uv.lock` fixes environment dependency versions. Tests are offline, and ties/IDs are deterministic for unchanged data and configuration. Python patch versions and build dependencies are not fully pinned.
-
-**What evidence supports the implementation, and what remains unknown?**
-
-Tests check a manual numeric score, chunk boundaries, tokenization, download failures, and evaluation formulas. Both a real-corpus CLI query and the full test-split evaluation were executed. The generated report measures quality against SciFact judgments; generalization, statistical uncertainty, and production performance remain unknown.
-
-**Why aren't a few plausible example results sufficient? What are qrels?**
-
-Examples can be cherry-picked and do not show how many relevant documents were missed. Qrels are dataset-provided mappings from query IDs to document IDs and relevance grades. We measure every judged test query, not labels invented from our own results.
-
-**Why map chunks back to documents, and how?**
-
-SciFact labels original documents, while search returns passages. Repeated chunks must not count as repeated relevant documents. Retrieve all matching chunks, retain each parent's first occurrence in rank order, then assign consecutive document ranks. This preserves each parent's best chunk and avoids missing parents after an arbitrary candidate cutoff.
-
-**Explain Recall@5, Recall@10, MRR@10, and nDCG@10.**
-
-Recall asks what fraction of all known relevant documents appears within the cutoff. MRR emphasizes how soon the first relevant document appears. nDCG considers all relevant hits in the top ten, discounts later ranks, and divides by the ideal ranking's gain. With relevant documents A and B and results X, A, B: Recall@2 is 1/2; reciprocal rank@3 is 1/2; nDCG@3 is `(1/log2(3) + 1/log2(4)) / (1 + 1/log2(3))`.
-
-**How do zero hits and multiple relevant documents affect aggregation?**
-
-No-hit queries receive zero, not exclusion. Multiple positives all contribute to recall's denominator and ideal DCG, but reciprocal rank uses only the first hit. Each query receives equal weight in the macro mean. Duplicate document ranks are rejected by metric functions.
-
-**Trace evaluation and distinguish quality from latency.**
-
-`evaluate_scifact` loads corpus/queries/test qrels, validates IDs, builds the unchanged default index, searches each test query, deduplicates documents, computes metrics, and macro-averages them. The CLI saves JSON. Quality is agreement with judgments; average query latency is search plus deduplication with the index already built. Total time additionally includes loading, indexing, validation, metrics, and report assembly, excluding the file write.
-
-**What limits the conclusions? Why not tune now?**
-
-Unjudged documents are treated as nonrelevant, so incomplete judgments can penalize useful results. This small scientific abstract dataset differs from enterprise documents. Full candidate scans are practical here but not scalable. Timing is one local run. Tuning against the test measurements would contaminate an honest baseline; a separately designed experiment should use a suitable development split.
-
-**What is an embedding, and why can similar text have nearby vectors?**
-
-An embedding is a fixed-length numerical representation. MiniLM maps text into 384 coordinates. Contrastive training brings related examples closer and pushes unrelated examples apart, so vector direction can capture relationships beyond shared words. This learned similarity is imperfect and does not prove factual agreement.
-
-**How does dense search differ from BM25 here?**
-
-BM25 explicitly scores shared token frequency, rarity, and length. Dense search encodes both query and chunk with one trained model, then ranks vector similarities. It can retrieve paraphrases without identical words but may blur precise scientific terms or negation. Both methods return the same chunk records and use the same document-level evaluation.
-
-**What is cosine similarity? Why normalize?**
-
-Cosine is `dot(a, b) / (norm(a) * norm(b))`: it compares angle/direction. Dividing vectors by their L2 norms makes the dot product equal cosine and prevents magnitude from dominating. Zero vectors have no defined direction and are rejected. Scores are not probabilities; floating-point rounding can slightly exceed mathematical bounds.
-
-**What happens offline versus online? Why cache?**
-
-Offline work loads the model and batch-encodes all chunks once. Online work encodes one query and compares it against cached chunk vectors. Repeating thousands of document encodings for every query would waste CPU time. The cache must match the model revision, ordered chunks, preprocessing configuration, and encoding settings; the code also checks vector integrity.
-
-**Why use exact search instead of ANN?**
-
-The corpus fits in a small matrix, so scanning every row is understandable and avoids approximation loss. ANN searches a reduced candidate space to improve speed at scale, at the cost of possible missed neighbors and additional index/configuration complexity. This milestone uses no ANN library.
-
-**What limits the BM25-versus-dense conclusions?**
-
-Model truncation may drop chunk tails. The embedding model is general-purpose and not tuned on this test set. Qrels may be incomplete, and document-level evaluation does not prove the selected passage contains evidence. Online timings exclude setup, while model loading/corpus encoding are reported separately. Read the generated comparison for this dataset's actual improvements/regressions; examples cannot establish universal superiority.
-
-**What did this actual comparison show?**
-
-Dense improved recall at both cutoffs, while BM25 retained higher MRR and nDCG. This means finding more relevant documents within ten did not imply placing the first/all relevant documents earlier. Query 1 is a measured dense-only top-ten hit; query 70 is a BM25-only hit. The exact query text, document ranks, and metric differences come from the generated comparison artifact. This is evidence about this fixed experiment, not a reason to tune on test judgments.
-
-**Why combine BM25 and dense retrieval? Why not add their scores?**
-
-They expose different signals and measured failures: shared terminology versus learned semantic similarity. BM25 and cosine have different scales and interpretations, so their raw sum would have an arbitrary balance. Rank fusion uses ordering without assuming comparable score units.
-
-**Explain our RRF calculation with an example.**
-
-Each document receives `1/(60 + rank)` from each candidate list where it occurs. Rank 1 in both gives `2/61`; rank 1 in only one gives `1/61`. Agreement is rewarded and rank advantages are softened. Missing means zero contribution. RRF scores are not probabilities; k=60 and equal weights are fixed, not tuned.
-
-**Why fuse documents instead of chunks? Which passage is retained?**
-
-Qrels refer to parent documents. Overlapping chunks should not give one source multiple votes. Each retriever's first chunk is the parent's representative, then parents receive compact ranks. BM25 and dense may retain different passages; both are included when available.
-
-**What is candidate generation versus final ranking?**
-
-Each component supplies at most 100 unique documents; RRF sorts their union and selects final top-k (ten for evaluation). Only 100 chunks could yield far fewer parents, so we first retrieve complete chunk rankings. The document cutoff was chosen before evaluation and can still exclude useful documents.
-
-**Trace hybrid search and explain deterministic ties.**
-
-`HybridIndex.search` calls existing BM25/dense searches, `document_candidates` deduplicates parents and retains passages, and `reciprocal_rank_fusion` sums rank contributions. Descending RRF score then ascending document ID determines final order. Component ties still follow chunk ID. No labels or model tuning enter this flow.
-
-**What did the three-way experiment show, and where did hybrid fail?**
-
-All four hybrid quality means improved over both baselines in this run, while online latency increased. Query 75's first relevant hit improved from ranks 2/3 to 1. Query 1's dense rank-5 hit fell outside hybrid's top ten. RRF agreement/candidate cutoffs can demote single-source hits; mean improvement is not universal improvement.
-
-**What should you understand before Milestone 5?**
-
-Understand lexical/semantic complementarity; incompatible raw-score scales; reciprocal-rank contributions and k; chunk-to-document deduplication and representatives; candidate depth versus final top-k; deterministic ties; recall versus early-rank metrics; and online latency versus preparation costs. Explain each using this code and its executed reports.
-
-**How does retrieval differ from reranking in this code?**
-
-Retrieval searches the corpus and supplies 50 hybrid candidate documents. Reranking scores their existing query/passage pairs and changes only their order. It never fetches additional documents or passages. `HybridIndex.search` generates candidates; `rerank_candidates` scores and sorts them.
-
-**Bi-encoder versus cross-encoder: why does cost differ?**
-
-The bi-encoder separately embeds query/passages, letting corpus vectors be computed once and cached. The cross-encoder jointly processes both texts so query/passages interact during transformer inference. It must repeat that work per pair per query; CPU batches reduce overhead without removing the cost.
-
-**What does candidate Recall@50 tell us?**
-
-For each query, count judged relevant documents in the 50 candidates and divide by all judged positives, then macro-average. This measures the relevant content available before reranking. If a relevant document is missing, its score is never computed and reranking cannot recover it. Even perfect reranking cannot overcome that candidate ceiling, and the final cutoff can constrain recall further.
-
-**Why score two passages and take the maximum?**
-
-BM25 and dense may select different chunks. Score each distinct chunk ID once; choose the highest score as the parent's signal and retain its passage. This lets either representative supply evidence. It does not establish truth, and max can amplify false positives or favor documents with two passages.
-
-**What determines final scores and deterministic output?**
-
-Raw cross-encoder logits alone determine order. No BM25, cosine, or RRF score is added. Document ties use ascending document ID; passage ties use ascending chunk ID. Original hybrid ranks/component passages remain provenance. Scores are not probabilities.
-
-**Trace M5 and distinguish timing stages.**
-
-Load models/cache/indexes once -> unchanged hybrid top 50 -> deduplicated representatives -> batches of 16 query/passage pairs -> max score per document -> sorted top ten -> unchanged metrics and candidate recall -> JSON/comparison. One-time model loads are separate; online timing includes hybrid work, prediction/tokenization, aggregation, and sorting. No cached corpus encoding is counted online.
-
-**What should you understand before the next milestone?**
-
-Retrieval versus reranking; independent versus joint text encoding; candidate recall and missed-candidate ceilings; query/passage logits; max aggregation and representative bias; batching and token limits; provenance and deterministic ties; and measured quality versus online/preparation cost. All examples should come from saved execution artifacts.
-
-**What did M5's actual experiment show?**
-
-All four reranked quality means increased over hybrid, at much higher CPU online latency dominated by pair inference. Query 128's relevant document moved 9 -> 1, query 70's moved 2 -> 10, and query 13's judged document was absent from candidates. Read the four-way artifact/README for executed measurements. Better averages do not imply improvement for each query; candidate recall is opportunity, not achieved final recall or claim verification.
-
-**What does RAG mean in this implementation?**
-
-Retrieval-augmented generation places the top five winning reranked passages in the prompt before asking a model to answer. It supplies corpus-specific evidence rather than expecting the model to recall it. Retrieval selects stored text; generation produces new text from the question/context.
-
-**What is grounding, and does the prompt guarantee it?**
-
-Grounding asks the answer to rely on supplied evidence, cite supported claims, and admit insufficiency. Our one prompt specifies this behavior, but a model can still use outside knowledge, misread text, or follow misleading passage instructions. No hallucination or answer-quality guarantee is established.
-
-**What is source provenance? Do citations prove truth?**
-
-Evidence records preserve source number, document ID, selected chunk ID, reranked rank, and exact text. Validation maps `[n]` to those IDs and detects unknown/missing references. A valid marker proves only that the referenced block existed; it does not check claim entailment, coverage, or truth.
-
-**Why five passages, and how can context windows limit RAG?**
-
-Five is a fixed initial choice. More passages may add evidence but also distractors, prompt cost, and tokens. The model's input/output context capacity must fit the full prompt and requested answer. M6 does not count provider-specific tokens or trim passages automatically; the endpoint can reject an oversized prompt.
-
-**Why separate the generator from retrieval?**
-
-One `generate(messages) -> str` contract allows a configured HTTP endpoint or offline fake without changing the frozen retrieval functions. The client posts chat messages and parses answer text; corpus retrieval never depends on a provider SDK.
-
-**How is insufficient evidence handled?**
-
-The prompt supplies an explicit abstention sentence. The model decides from the passages; no arbitrary BM25/cosine/reranker threshold is used. With no passages the prompt states that evidence is absent. An uncited abstention is preserved with citation validation failed, as required by the reference-check policy.
-
-**Trace M6 and explain what has actually been verified.**
-
-CLI configuration -> existing corpus/cache/models -> hybrid 50 -> reranked five winning passages -> numbered context + one prompt -> configured generator -> numeric reference validation -> answer/provenance/timing JSON. Offline tests exercise the complete composition and HTTP contract with fakes/mocks. M6 originally used fakes/mocks; a subsequent local qwen2.5:7b smoke test demonstrated that valid references can accompany misinterpreted evidence. Frozen retrieval metrics do not measure answer quality.
-
-## M7 questions
-
-**Why not score free-form answers directly?** Different phrasing and multiple assertions require gold reference facts and a rubric. This benchmark scores one explicit SciFact stance, not all explanation facts.
-
-**What do SUPPORT, CONTRADICT, and ABSTAIN mean?** The supplied evidence supports the claim, contradicts it, or is insufficient/ambiguous. ABSTAIN is a model action, not an invented gold label for empty metadata.
-
-**Why are qrels insufficient for stance?** Relevance identifies useful documents; both supporting and contradicting documents can be relevant. Stance comes from query metadata.
-
-**How do coverage and accuracy interact?** Coverage is the fraction of valid non-abstained predictions. Conditional accuracy may look high when the system answers very few claims, so report coverage and overall accuracy together. Parsing/HTTP failures are not abstentions.
-
-**Accuracy versus macro F1?** Accuracy counts each claim equally. Macro F1 averages the two class F1 scores equally, making minority-class performance visible. Abstentions/failures reduce class recall here.
-
-**What does valid citation syntax establish?** The marker refers to supplied evidence. It does not establish that the passage entails the generated assertion.
-
-**Can document-presence diagnostics separate failures?** They help inspect retrieval and reasoning, but a retrieved parent may have the wrong passage. Association is not causality.
-
-**Trace M7.** Explicit test metadata -> frozen hybrid 50/reranked five -> fixed prompt -> local HTTP generation -> strict verdict parse/reference check -> checkpoint -> classification metrics and document-presence diagnostics.
-
-**Main limitations?** Only 188 annotated scientific claims; no gold abstentions, sentence alignment, general-answer reference facts, or explanation entailment scoring. A correct verdict can accompany an unsupported explanation.
-
-**What did the real M7 smoke establish?** Retrieval and the HTTP client executed for five claims, but every response violated JSON syntax by leaving the verdict unquoted. Strict parsing recorded five failures, not inferred predictions. That initial smoke exceeded the runtime gate; the subsequently completed full benchmark is documented below.
-
-**Why use constrained generation instead of repairing output?** M7.1 sends a JSON schema through the OpenAI-compatible response_format field to prevent serialization errors during generation. Strict parsing still rejects invalid output; schema compliance does not establish semantic correctness. The verdict instructions and retrieval remain unchanged.
-
-**Why structured citations?** A dedicated integer array separates source references from prose. Verification can accept an uncited ABSTAIN while requiring supplied sources for SUPPORT/CONTRADICT. Valid JSON, a valid verdict, and valid source references are separate checks; none proves evidence entailment.
-
-**What trade-off did the full M7 run measure?** qwen2.5:3b classified only 34/188 claims, getting 28 of those correct: 18.09% coverage and 82.35% non-abstained accuracy. Its 154 abstentions reduce overall accuracy to 14.89%; macro F1 is 0.188228. This is conservative bounded claim verification, not high general answer accuracy.
-
-**Which class was weakest?** CONTRADICT recall was 0.015625 (1/64), versus SUPPORT recall 0.217742 (27/124). The high conditional accuracy hides low coverage and poor contradiction detection.
-
-**Did reliable output prove grounding?** No. Parsing/request failures were zero and citation validity was 0.978723, but valid source numbers do not prove entailment. Gold documents appeared in 179/188 contexts; present/absent accuracy was 0.150838/0.111111. Parent-document presence is not sentence-level rationale coverage. Total recorded evaluation runtime was 4981.39 seconds.
+**22. Biggest production limitations and technical debt?** Spoofable headers without a gateway, static ACL snapshots, privileged global indexes/CLI, no timing-side-channel or prompt-injection defense, exact-scan scale limits, serialized inference, incomplete/truncated evidence, poor contradiction recall, process-local telemetry, and no cloud deployment/load testing. Python 3.12 is constrained to one minor version; Docker base tags/OS/build tools are not digest/bit-identical guarantees. One upstream Starlette/HTTPX deprecation warning remains; no broad dependency upgrade was made.

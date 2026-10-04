@@ -1,5 +1,14 @@
 # Code walkthrough
 
+## CI and final repository boundaries (M12)
+
+- `.github/workflows/ci.yml`: one Ubuntu 24.04/Python 3.12 job on push/PR, SHA-pinned checkout/setup actions, uv 0.11.26, read-only permissions, locked sync, offline tests/build, commit/worktree whitespace checks, and Docker build-only. No asset mounts, benchmark run, runtime model call, registry/PyPI publication, or new linting tool.
+- `tests/conftest.py`: rejects HTTP connection creation so forgotten mocks fail without interfering with Windows' internal async socket pairs. Existing tests use fixture files/fake backends and remain independent of local corpus/models/secrets.
+- `docs/RUNBOOK.md`: complete Linux/PowerShell preparation, header transport, generation configuration, metrics, Docker mounts/networking, and shutdown commands. `results/README.md` documents immutable artifacts, their sizes/checksums, complete M7 metrics, and distinctions from operational smokes.
+- `pyproject.toml`: accurate project description, unchanged Python 3.12 requirement/dependency versions. `uv.lock` stays authoritative. `.gitignore` also protects stray model/checkpoint/cache/key files; `.dockerignore` already restricts image inputs.
+
+No application source or result JSON changes accompany M12. Hosted CI success is separate from locally executed tests/builds. Source/wheel building may use unpinned-within-range Hatchling build dependencies; lockfiles do not make the Docker OS/base tag bit-identical. No LICENSE exists and no license choice is inferred.
+
 ## Observability code (M11)
 
 - `observability.py`: `request_id` validates/generates UUIDs; `RequestTracingMiddleware` observes all HTTP paths and sanitizes errors; `current_trace` carries request correlation through handler threads. `log_event` uses Python logging with JSON fields, never caller payloads. `Metrics.record/snapshot` lock fixed counters and duration aggregates. `ObservedGenerator.generate` records call timing/failure and delegates without modifying messages, outputs, or exceptions.
@@ -7,7 +16,7 @@
 - `service.py`: uses the generation observer around unchanged M6 `rag.ask`; initialization logs contain only booleans, duration, and exception types. It does not alter retrieval, authorization, or generation settings.
 - `tests/test_observability.py`: offline tests cover ID replacement/propagation, payload-safe correlated logs, counters/error distinctions, fixed snapshot shape, resets, concurrent updates/requests, and response-body duration. Existing authorization tests still inspect actual model inputs.
 
-Request observation adds no dependencies. Existing generation and scientific modules remain frozen; no real generation or expensive benchmark is needed to verify tracing. README shows request/response ID and metrics commands. Duration aggregates are totals/counts/means, not percentiles or quality metrics.
+Request observation adds no dependencies. Existing generation and scientific modules remain frozen; no real generation or expensive benchmark is needed to verify tracing. The runbook shows request/response ID and metrics commands. Duration aggregates are totals/counts/means, not percentiles or quality metrics.
 
 Executed verification: locked offline sync, 431 offline tests (31 new observability cases), package build, and a real local health/metrics/search/403-denial smoke. The caller UUID appeared unchanged in the response and request log; counters changed as expected and no protected values appeared in the six request records. No real generator call was made. Preparation was 25.32 s; retrieval/reranking 0.409 s. The server was stopped afterward.
 
@@ -21,7 +30,7 @@ Executed verification: locked offline sync, 431 offline tests (31 new observabil
 
 Trace one request: headers -> validated principal -> ready policy store -> global hybrid 50 -> allowed candidates -> existing cross-encoder -> search results or M6 numbered evidence -> generator -> inline source mapping. Final-response-only filtering would leave protected text in model inputs; the adapter prevents that earlier. The CLI/evaluation routes do not use this adapter.
 
-README contains startup/header examples. Missing/malformed policy configuration returns 503 without broad access. Policy changes require restart. Build/check commands: `uv build --offline --cache-dir .uv-cache` and `git diff --check`. No new dependencies, model downloads, or benchmark reruns were introduced.
+The runbook contains startup/header examples. Missing/malformed policy configuration returns 503 without broad access. Policy changes require restart. Build/check commands: `uv build --offline --cache-dir .uv-cache` and `git diff --check`. No new dependencies, model downloads, or benchmark reruns were introduced.
 
 ## Docker files (M9)
 
@@ -30,7 +39,7 @@ README contains startup/header examples. Missing/malformed policy configuration 
 - `compose.yaml`: one application service, Linux amd64, loopback-only host port, explicit generation-variable forwarding, four directory mounts plus M10's read-only demo policy file/path, and a 90-second shutdown grace period. Container UID/GID can be overridden for Unix cache ownership.
 - `.env.example`: distinguishes host versus Docker Desktop endpoint addresses and documents the required host policy path. Compose forwards the three generation fields and sets its mounted policy path; Python still reads only its process environment.
 
-Build/start/smoke/shutdown commands are in README. To build without Compose: `docker build --platform linux/amd64 -t enterprise-ai-search:m9 .`. To inspect size: `docker image inspect enterprise-ai-search:m9 --format '{{.Size}}'` (bytes). `docker compose logs search` shows startup/preparation, while `GET /health` reports preparation seconds once ready. Use `docker compose config --quiet` to validate configuration without printing interpolated secrets.
+Build/start/smoke/shutdown commands are in the runbook. To build without Compose: `docker build --platform linux/amd64 -t enterprise-ai-search:m9 .`. To inspect size: `docker image inspect enterprise-ai-search:m9 --format '{{.Size}}'` (bytes). `docker compose logs search` shows startup/preparation, while `GET /health` reports preparation seconds once ready. Use `docker compose config --quiet` to validate configuration without printing interpolated secrets.
 
 The healthcheck uses installed Python's `urllib.request`, with a 3-second request timeout, 30-second interval, 180-second startup grace, and three retries. HTTP 503 or connection failure marks the service unhealthy; health status alone does not restart it. The owner reported successful M9 build/mount/HTTP verification after Docker was unavailable in the initial pass. M10's updated container was not run here; rebuild it for the new code. No Docker timings or image size are claimed.
 
@@ -40,7 +49,7 @@ The healthcheck uses installed Python's `urllib.request`, with a 3-second reques
 - `service.py`: `load_service` composes existing loaders/indexes/cache/reranker without changing their settings. `SearchService.search` requests 50 hybrid candidates through the authorization adapter and reranks; `answer` calls unchanged `rag.ask` through the same adapter. Both require a principal and reuse a shared lock and the same initialized objects. Generation configuration is optional; logs use standard-library logging and omit payloads/secrets/identity.
 - `tests/test_api.py`: factory injection, tiny fake candidate/predictor/generator objects, lifecycle/resource reuse, request limits, ranking/source mapping, failed citations, missing configuration, and sanitized failure responses. A mocked default-loader test verifies preparation without models or corpus files.
 
-Start with `uv run --locked --offline --cache-dir .uv-cache uvicorn enterprise_ai_search.api:create_app --factory --host 127.0.0.1 --port 8000` from the repository root after setup and setting `AUTHORIZATION_POLICY_PATH`. Lifespan -> retained service -> validated HTTP identity/request -> authorized retrieval or M6 RAG -> public response model -> JSON. The CLI remains the privileged evaluation/preparation entry point; the API does not expose benchmark execution. See README for the exact PowerShell requests.
+Start with `uv run --locked --offline --cache-dir .uv-cache uvicorn enterprise_ai_search.api:create_app --factory --host 127.0.0.1 --port 8000` from the repository root after setup and setting `AUTHORIZATION_POLICY_PATH`. Lifespan -> retained service -> validated HTTP identity/request -> authorized retrieval or M6 RAG -> public response model -> JSON. The CLI remains the privileged evaluation/preparation entry point; the API does not expose benchmark execution. See the runbook for the exact PowerShell requests.
 
 - `models.py`: `Document` represents a source record; `Chunk` represents a searchable passage with a parent ID; `SearchResult` adds rank and score. Frozen dataclasses discourage accidental record mutation.
 - `dataset.py`: `FILES` fixes download provenance and SHA-256 values. `download_scifact` verifies cached/downloaded bytes and replaces files only after verification. `load_corpus` separately handles plain or compressed JSONL without network access. `load_queries` reuses its ID/text validation; `load_qrels` parses provided TSV grades without inventing labels.
@@ -60,7 +69,7 @@ Start with `uv run --locked --offline --cache-dir .uv-cache uvicorn enterprise_a
 
 `uv run --locked --cache-dir .uv-cache enterprise-search evaluate --output results/scifact_bm25_rerun.json` reruns the entire local test split while preserving the frozen baseline artifact. Quality values come from execution, not hand-maintained constants. No new dependency was introduced for evaluation.
 
-The real-corpus smoke query is in README. `uv build --offline --cache-dir .uv-cache` works after build dependencies are cached and produces source/wheel artifacts under `dist/`. No formatter or linter is configured.
+The real-corpus smoke query is in the runbook. `uv build --offline --cache-dir .uv-cache` works after build dependencies are cached and produces source/wheel artifacts under `dist/`. No formatter or linter is configured.
 
 Understand the distribution name (`enterprise-ai-search`) versus import name (`enterprise_ai_search`), and why tests exercise installed source through the src layout.
 

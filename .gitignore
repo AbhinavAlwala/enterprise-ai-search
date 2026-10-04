@@ -12,11 +12,22 @@ dist/
 htmlcov/
 .uv-cache/
 data/
+models/
+checkpoints/
+.cache/
+*.safetensors
+*.pt
+*.pth
+*.onnx
+*.npz
 
 # Local secrets
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+*.p12
 
 # Editor and operating system files
 .idea/

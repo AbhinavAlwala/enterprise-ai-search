@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      HF_DATASETS_OFFLINE: "1"
+      UV_PYTHON_DOWNLOADS: never
+      GENERATION_ENDPOINT: ""
+      GENERATION_MODEL: ""
+      GENERATION_API_KEY: ""
+      AUTHORIZATION_POLICY_PATH: ""
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.11.26"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Sync locked dependencies
+        run: uv sync --locked
+      - name: Run offline tests
+        run: uv run --locked --offline pytest -q
+      - name: Build distributions
+        run: uv build --offline
+      - name: Check whitespace
+        run: |
+          git diff-tree --check --root -m -r HEAD
+          git diff --check
+      - name: Build Docker image only
+        run: docker build --platform linux/amd64 --tag enterprise-ai-search:ci .
