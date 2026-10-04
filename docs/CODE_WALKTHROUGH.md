@@ -1,5 +1,7 @@
 # Code walkthrough
 
+Final audit: the API distinguishes internal ask failures (500/unexpected error) from detected generator failures (502). The CLI guard protects all 13 result paths. `tests/test_result_artifacts.py` checks writer protection and the LF-normalized manifest across checkout line endings.
+
 ## CI and final repository boundaries (M12)
 
 - `.github/workflows/ci.yml`: one Ubuntu 24.04/Python 3.12 job on push/PR, SHA-pinned checkout/setup actions, uv 0.11.26, read-only permissions, locked sync, offline tests/build, commit/worktree whitespace checks, and Docker build-only. No asset mounts, benchmark run, runtime model call, registry/PyPI publication, or new linting tool.
@@ -125,7 +127,7 @@ Execution: CLI -> existing chunks/cache/indexes -> hybrid top 50 -> distinct rep
 - `SYSTEM_PROMPT` and `build_messages`: the single location for evidence-only answering, insufficiency, citation syntax, and concise output instructions.
 - `validate_citations`: recognizes integer markers such as `[1]`, checks membership in supplied source numbers, and preserves valid mappings when another reference is invalid. Grouped syntax such as `[1, 2]` is unsupported. This function does not evaluate entailment or whether every claim has a citation.
 - `rag.ask`: calls existing hybrid/reranking functions, builds evidence/messages, invokes one generator, validates references, and measures each online stage.
-- `cli._run_ask`: checks configuration first, prepares existing models/index/cache, and adds preparation/total end-to-end timing to JSON output. Previous report writers now protect all seven frozen artifacts.
+- `cli._run_ask`: checks configuration first, prepares existing models/index/cache, and adds preparation/total end-to-end timing to JSON output. Report writers protect all 13 frozen artifacts, including claim-verification reports and smokes.
 
 Tests in `test_rag.py` use existing BM25/dense/hybrid/reranking functions with tiny vectors and fake models/generators, including the full CLI path. `test_generation.py` mocks HTTP to verify payload/authentication, parsing, timeout/configuration errors, and secret-safe failures. No test calls a real LLM, downloads models, or needs network access.
 

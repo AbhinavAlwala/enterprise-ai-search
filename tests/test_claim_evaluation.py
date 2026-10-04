@@ -162,11 +162,17 @@ def test_cli_smoke_and_full_resume_with_fake_preparation(tmp_path: Path, monkeyp
     assert json.loads(capsys.readouterr().out)["metrics"]["evaluated_claims"] == 7
 
 
-def test_cli_protects_frozen_artifacts_before_model_loading(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("name", [
+    "scifact_reranked_test.json", "scifact_claim_verification_test.json",
+    "scifact_claim_verification_smoke.json", "scifact_claim_verification_smoke_m71.json",
+    "scifact_claim_verification_smoke_m72.json", "scifact_claim_verification_smoke_m73.json",
+    "scifact_claim_verification_smoke_m74.json",
+])
+def test_cli_protects_frozen_artifacts_before_model_loading(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
     from enterprise_ai_search.cli import main
 
     monkeypatch.setattr(evaluation, "prepare_retrieval", lambda *args: pytest.fail("Must reject output before preparing models"))
-    monkeypatch.setattr(sys, "argv", ["enterprise-search", "evaluate-claims", "--smoke", "--output", "results/scifact_reranked_test.json"])
+    monkeypatch.setattr(sys, "argv", ["enterprise-search", "evaluate-claims", "--smoke", "--output", "results/" + name])
     with pytest.raises(SystemExit) as failure:
         main()
     assert failure.value.code == 2

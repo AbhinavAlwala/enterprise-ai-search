@@ -1,5 +1,9 @@
 # Design decisions
 
+## Final audit corrections
+
+An internal retrieval/reranking failure in ask previously returned 502 without increasing unexpected errors. The API now uses the existing generator-failure flag to distinguish upstream generation failures from internal 500s. All 13 frozen result paths are protected, including claim reports previously omitted by the CLI guard. The result manifest normalizes CRLF to LF for verification across Git checkouts; JSON artifacts and historical execution fingerprints remain unchanged.
+
 ## M12: CI and release-quality documentation
 
 One Ubuntu 24.04/Python 3.12 workflow is sufficient: locked sync, offline mocked tests, source/wheel build, whitespace checks, and Docker build-only. [uv's CI guidance](https://docs.astral.sh/uv/guides/integration/github/) supports pinned uv and cache reuse. Actions are pinned to verified release commit SHAs; permissions are read-only and checkout does not retain credentials. Model/data offline flags plus an HTTP test guard prevent accidental runtime downloads/calls. Package/image pulls during initial dependency installation are allowed; this is not a network-isolated installation.
@@ -8,7 +12,7 @@ CI never starts the application, because startup requires assets deliberately ex
 
 Keep uv.lock authoritative without dependency upgrades. Python 3.12 selects a minor version, not an identical patch/build. The Docker base and uv image use release tags, not immutable digests; OS packages and the permitted Hatchling build range can vary. Pinning an exact image digest would freeze base content, but does not alone freeze every later network/build input. No bit-identical build claim is made.
 
-README is a measured overview; detailed commands move to a runbook, artifact provenance/sizes/hashes live beside frozen results, and interview prep is consolidated into 22 questions grounded in implementation. All 13 JSON reports remain intact (6,129,866 bytes total; largest 2,914,691 bytes), including public-corpus evidence/generation traces for claim verification. No local data/models/cache/secret files belong in Git or image inputs. No LICENSE exists; selecting one remains the owner's decision. Metadata changes only describe the existing project accurately.
+README is a measured overview; detailed commands move to a runbook, artifact provenance/sizes/hashes live beside frozen results, and interview prep is consolidated into 22 questions grounded in implementation. All 13 JSON reports remain intact (5,953,178 LF-normalized bytes total; largest 2,809,174 bytes), including public-corpus evidence/generation traces for claim verification. No local data/models/cache/secret files belong in Git or image inputs. No LICENSE exists; selecting one remains the owner's decision. Metadata changes only describe the existing project accurately.
 
 ## M11: bounded observation around unchanged behavior
 
@@ -16,7 +20,7 @@ Observability helps explain system behavior; logs describe individual events, wh
 
 Use Python logging, a pure ASGI boundary, one `ContextVar`, and one small metrics lock. JSON fields make request/lifecycle/error records machine-readable; no logging/tracing SDK is needed. Bounded route/method labels prevent raw URL/query values entering logs. Uvicorn's duplicate raw access log is suppressed. Error records include exception type, never exception message/stack locals. No identity hashing is needed because raw or encoded identities are not logged at all.
 
-Exact counters: total observed HTTP requests; POST search/ask attempts; identity rejections (M10 400/403); unexpected internal errors (uncaught errors plus search pipeline 500); detectable generation-call failures/invalid outputs. Configuration 503 and expected ask pipeline 502 are separate from unexpected errors. Partial document filtering is not counted as a denied request, and missing policy 503 remains availability, not an identity rejection. Route buckets are health/metrics/search/ask/other; status buckets are 1xx through 5xx plus other (including no response started). No request, tenant, principal, document, or query labels are created.
+Exact counters: total observed HTTP requests; POST search/ask attempts; identity rejections (M10 400/403); unexpected internal errors (uncaught errors plus internal search/ask pipeline 500); detectable generation-call failures/invalid outputs. Configuration 503 and detected generator failures returned as 502 are separate from unexpected errors. Partial document filtering is not counted as a denied request, and missing policy 503 remains availability, not an identity rejection. Route buckets are health/metrics/search/ask/other; status buckets are 1xx through 5xx plus other (including no response started). No request, tenant, principal, document, or query labels are created.
 
 Track request duration and fixed existing retrieval_reranking_seconds/generation_request_seconds/online_seconds aggregates with count, total, and mean. Successful stage samples come from existing timing fields; failed generator calls also contribute generation duration. Separate candidate generation, ACL filtering, and reranker durations are not exposed today and are not inferred. The observer delegates the generator without changing protocol/errors. Request duration includes ASGI handling/body sends and lock waits; stage timing excludes that wait. Use monotonic `perf_counter`, preserving benchmark timing and separating operational observations from frozen quality metrics.
 

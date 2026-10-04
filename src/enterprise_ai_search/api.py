@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from enterprise_ai_search.authorization import PrincipalContext, parse_principal
 from enterprise_ai_search.observability import (
-    Metrics, RequestTracingMiddleware, log_event, log_request_error, mark_authorization_denied, record_timings,
+    Metrics, RequestTracingMiddleware, current_trace, log_event, log_request_error, mark_authorization_denied, record_timings,
 )
 from enterprise_ai_search.rag import CitationValidation, EvidenceItem
 from enterprise_ai_search.service import SearchService, load_service
@@ -169,8 +169,10 @@ def create_app(service_factory: Callable[[], SearchService] = load_service) -> F
         try:
             result = service.answer(body.question, principal)
         except (OSError, ValueError, RuntimeError) as error:
-            log_request_error(logger, error, unexpected=False)
-            raise HTTPException(status_code=502, detail="Answer request failed") from None
+            trace = current_trace.get()
+            generation_failed = trace is not None and trace.generation_failed
+            log_request_error(logger, error, unexpected=not generation_failed)
+            raise HTTPException(status_code=502 if generation_failed else 500, detail="Answer request failed") from None
         timings = {**result.timings, "handler_seconds": perf_counter() - started}
         record_timings(result.timings)
         return AskResponse(answer=result.answer, evidence=list(result.evidence),

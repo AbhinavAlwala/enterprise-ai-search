@@ -166,7 +166,7 @@ def test_initialization_failure_is_visible_but_sanitized() -> None:
 
 
 @pytest.mark.parametrize("route,method,error,status", [
-    ("/search", "search", ValueError, 500), ("/ask", "answer", OSError, 502),
+    ("/search", "search", ValueError, 500), ("/ask", "answer", OSError, 500),
     ("/search", "search", TypeError, 500),
 ])
 def test_request_errors_do_not_expose_details(service, monkeypatch, caplog, route, method, error, status) -> None:

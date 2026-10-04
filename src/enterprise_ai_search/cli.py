@@ -21,6 +21,12 @@ def _check_report_output(output: Path) -> None:
         Path("results/scifact_hybrid_test.json").resolve(), Path("results/scifact_comparison.json").resolve(),
         Path("results/scifact_hybrid_comparison.json").resolve(),
         Path("results/scifact_reranked_test.json").resolve(), Path("results/scifact_reranked_comparison.json").resolve(),
+        Path("results/scifact_claim_verification_test.json").resolve(),
+        Path("results/scifact_claim_verification_smoke.json").resolve(),
+        Path("results/scifact_claim_verification_smoke_m71.json").resolve(),
+        Path("results/scifact_claim_verification_smoke_m72.json").resolve(),
+        Path("results/scifact_claim_verification_smoke_m73.json").resolve(),
+        Path("results/scifact_claim_verification_smoke_m74.json").resolve(),
     ):
         raise ValueError("Output must not overwrite a frozen baseline report")
 

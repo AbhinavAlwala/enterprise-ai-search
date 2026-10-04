@@ -190,22 +190,32 @@ def test_generation_failure_count_detects_actual_generator_calls(service, monkey
         assert snapshot["stages_seconds"]["generation_request_seconds"]["count"] == 1
 
 
-@pytest.mark.parametrize("stage", ["retrieval", "configuration"])
-def test_failures_before_generation_do_not_count_as_generation_failures(service, monkeypatch, stage) -> None:
+@pytest.mark.parametrize("stage", ["retrieval", "reranking", "configuration"])
+def test_failures_before_generation_are_classified_and_correlated(service, monkeypatch, caplog, stage) -> None:
+    caplog.set_level(logging.INFO)
     def fail(*args):
         raise ValueError("private-evidence")
 
     if stage == "retrieval":
         monkeypatch.setattr(service.index, "search", fail)
+    elif stage == "reranking":
+        monkeypatch.setattr(service.reranker, "predict", fail)
     else:
         service.generator = None
     app = create_app(lambda: service)
-    with TestClient(app, headers=IDENTITY) as client:
+    with TestClient(app, headers={**IDENTITY, "X-Request-ID": CALLER_ID}) as client:
         response = client.post("/ask", json={"question": "q"})
-        assert response.status_code == (502 if stage == "retrieval" else 503)
+        assert response.status_code == (503 if stage == "configuration" else 500)
+        assert response.headers["X-Request-ID"] == CALLER_ID
         snapshot = app.state.metrics.snapshot()
         assert snapshot["generation_failures"] == 0
+        assert snapshot["unexpected_errors"] == (0 if stage == "configuration" else 1)
         assert snapshot["stages_seconds"]["generation_request_seconds"]["count"] == 0
+        assert service.generator is None or service.generator.inputs == []
+        errors = [r for r in caplog.records if getattr(r, "event", None) == "request_error"]
+        assert len(errors) == (0 if stage == "configuration" else 1)
+        assert all(r.request_id == CALLER_ID and r.unexpected for r in errors)
+        assert "private-evidence" not in response.text and "private-evidence" not in caplog.text
 
 
 def test_snapshot_shape_is_bounded_and_copied(service, caplog) -> None:

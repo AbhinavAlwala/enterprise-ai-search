@@ -43,7 +43,7 @@ The local real-corpus smoke returned disjoint A/B source sets (3/2 documents) fo
 4. `/ask` validates the question/identity and requires generation configuration. Under the same lock, unchanged M6 RAG with the authorized index selects up to five passages, builds its existing numbered prompt, generates free-form text, and validates inline source references. JSON preserves answer, evidence, mappings, failures, and existing online-stage timings. It never invokes claim evaluation.
 5. HTTP handlers add `handler_seconds`, including time waiting for the lock but excluding request validation, response serialization, and network transfer. Retrieval/generation stage timings exclude that wait; one-time preparation appears only in health. Shutdown releases retained service references.
 
-Invalid body input is 422; identity errors are 400/403 as described above; missing retrieval/policy/generation configuration is 503; search failures are 500 and expected answer-pipeline failures are 502. Responses and application logs omit exception details, identity/ACL details, keys, and large evidence payloads. The privileged CLI still prepares unscoped resources per invocation and prints JSON; the HTTP service keeps them across requests.
+Invalid body input is 422; identity errors are 400/403 as described above; missing retrieval/policy/generation configuration is 503; internal search/ask failures are 500 and detected generator request/output failures are 502. Responses and application logs omit exception details, identity/ACL details, keys, and large evidence payloads. The privileged CLI still prepares unscoped resources per invocation and prints JSON; the HTTP service keeps them across requests.
 
 ## Local ingestion and lexical search
 

@@ -1,6 +1,6 @@
 # Frozen SciFact results
 
-All 13 JSON artifacts below are intentionally committed historical measurements, not runtime caches. Total size is 6,129,866 bytes (about 6.13 MB); the largest is 2,914,691 bytes (reranked retrieval). Raw corpus/model files remain ignored. No artifact was rerun or modified during M12.
+All 13 JSON artifacts below are intentionally committed historical measurements, not runtime caches. With LF line endings, total size is 5,953,178 bytes (about 5.95 MB); the largest is 2,809,174 bytes (reranked retrieval). Raw corpus/model files remain ignored. No artifact was rerun or modified during M12.
 
 ## Scope and provenance
 
@@ -42,22 +42,22 @@ Only 34/188 claims received asserted verdicts, with 28 correct; 154 abstentions 
 
 The owner reported M9 Docker runtime verification. M10's synthetic ACL smoke returned disjoint A/B source sets; one real ask used authorized sources but returned an uncited insufficiency answer. M11 verified request-ID propagation, counters, and safe logs without generation. Their one-run timings are recorded in design decisions; they are not replacements for frozen retrieval latency or new answer-quality metrics. Synthetic tenant metadata is separate from SciFact corpus/qrels.
 
-## File sizes and SHA-256
+## File sizes and SHA-256 (LF-normalized)
 
-These checksums describe exact JSON bytes. They are independent of each artifact's recorded source/input fingerprints. Future explicitly requested experiments must write new output paths; do not overwrite or rewrite these reports.
+These sizes and checksums use UTF-8 JSON bytes with CRLF replaced by LF, matching Git's committed blobs. Windows checkout conversion can change raw file hashes without changing JSON. Normalize only line endings before verifying; do not reserialize JSON. Historical raw hashes inside comparison/checkpoint artifacts retain their original execution meaning and are not rewritten. Future explicitly requested experiments must write new output paths; do not overwrite or rewrite these reports.
 
-| Artifact | Bytes | SHA-256 |
+| Artifact | LF bytes | LF SHA-256 |
 |---|---:|---|
-| [scifact_bm25_test.json](scifact_bm25_test.json) | 146264 | `54c9fe04580db80d5dce11559ac68fffd6225353490ccdce4a5c268df189c1ca` |
-| [scifact_claim_verification_smoke.json](scifact_claim_verification_smoke.json) | 45107 | `0892916eae4c484a46aecc2ede0ad3257f8036a7770be67d09a4b6874e9ff375` |
-| [scifact_claim_verification_smoke_m71.json](scifact_claim_verification_smoke_m71.json) | 47723 | `eb1c2630ffc22766a64135df0ac676592dcb5efc28ef63d8cfb424dd823f4267` |
-| [scifact_claim_verification_smoke_m72.json](scifact_claim_verification_smoke_m72.json) | 48732 | `1efb96f0e3b674a456ba9f36e3e8f388b06e91bed220929a826d06ac41080be1` |
-| [scifact_claim_verification_smoke_m73.json](scifact_claim_verification_smoke_m73.json) | 52328 | `9dc9c88a32cf5d492f6b8207ad57d4b39d1ab37e01f1cc333debb6dc1d8680a7` |
-| [scifact_claim_verification_smoke_m74.json](scifact_claim_verification_smoke_m74.json) | 52743 | `d0e51d2b28139af22dc1270ac78885d51bc4d8cb704c2c9a8a3baabc8bc0427c` |
-| [scifact_claim_verification_test.json](scifact_claim_verification_test.json) | 1718203 | `b60fa50f3c510c297d85d1c959fd32f62116d5adcad5aa1880db9f8a60e9907c` |
-| [scifact_comparison.json](scifact_comparison.json) | 2770 | `1d85ca8c7441e295ab2f6c4732f504dce6fe3199ae7cc74f9745a0604c27d36a` |
-| [scifact_dense_test.json](scifact_dense_test.json) | 148658 | `3b08270b868918c99fc021d1fcf9831f522515af78e203ea5db74b3e1c17f4e9` |
-| [scifact_hybrid_comparison.json](scifact_hybrid_comparison.json) | 5439 | `fad9515ef5e9bd2f01984b7f3ebe17d974060eb5a8e24719f9de935564ffc22c` |
-| [scifact_hybrid_test.json](scifact_hybrid_test.json) | 941861 | `dc1b82e1c0b5c08935f35373bc8b90b04072627dee6fe2eab32a9920e2418365` |
-| [scifact_reranked_comparison.json](scifact_reranked_comparison.json) | 5347 | `ebcb1c15cadc0c1fc11694c09131471a41fdec226906890c628a352c4ebe45d7` |
-| [scifact_reranked_test.json](scifact_reranked_test.json) | 2914691 | `3ce0263ebc79fcba244469a5013d1b2867d75c963b77819d3d7a164767fb5cf5` |
+| [scifact_bm25_test.json](scifact_bm25_test.json) | 139603 | `ebf7ae8c5582b1aad764c6dfd9259ad5099af1d09ac1ceb80604a5fd74966d5f` |
+| [scifact_claim_verification_smoke.json](scifact_claim_verification_smoke.json) | 44459 | `963460c90a7efd05a54c76928352606b03dca87fb5a1be6b45d616e3584c79a3` |
+| [scifact_claim_verification_smoke_m71.json](scifact_claim_verification_smoke_m71.json) | 47003 | `abe0fa8eb8c0b1c3630b84d9117c8e5aafc393d4dbdcf95d195c6a5225d4a42b` |
+| [scifact_claim_verification_smoke_m72.json](scifact_claim_verification_smoke_m72.json) | 48036 | `d2be767a81a120e2550efb2ab53f834043c61aef63c7a3d31b648b5f37d2c51d` |
+| [scifact_claim_verification_smoke_m73.json](scifact_claim_verification_smoke_m73.json) | 51436 | `de7ef3bfb29e3ff27644a04eefad254ecf91bb763b64632a02fc4dda14e6389d` |
+| [scifact_claim_verification_smoke_m74.json](scifact_claim_verification_smoke_m74.json) | 51851 | `fcd62d515b4cb10c6b9f6bb5e5919915e342a03b563978b3d3ec3f833d3fbacd` |
+| [scifact_claim_verification_test.json](scifact_claim_verification_test.json) | 1696072 | `7183ba3ed4a5410eaacbcc3b23d5d38233b5afa620a613b33dee27f1f96e329f` |
+| [scifact_comparison.json](scifact_comparison.json) | 2662 | `8d736569402c1d6a5d4d3a23975e07be696da05b022c6599c9b221435604e37e` |
+| [scifact_dense_test.json](scifact_dense_test.json) | 141939 | `52e2a9273b58b35927f46582f98a26d55b9fa17cb401ed975c71556117ba03c7` |
+| [scifact_hybrid_comparison.json](scifact_hybrid_comparison.json) | 5228 | `5d3b5456485c426a04ecc5d974ec5a04695831fa6ef4190d28cb61825ba2048f` |
+| [scifact_hybrid_test.json](scifact_hybrid_test.json) | 910532 | `7239dba538c5cf5991ceb9a2237ca1724fc8160707de31f59492dc879ada9bb2` |
+| [scifact_reranked_comparison.json](scifact_reranked_comparison.json) | 5183 | `2b74fbd6eb85b0e41be28d6caa7cd83503266659ee51d483ac81ce28be830711` |
+| [scifact_reranked_test.json](scifact_reranked_test.json) | 2809174 | `978c191c25ac35558b362591f187fca39039dfc5c292312659bfef18a76ea99c` |
