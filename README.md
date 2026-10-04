@@ -1,20 +1,32 @@
 # Enterprise AI Search & Retrieval Platform
 
-An evaluated retrieval and RAG engineering project with explicit ranking algorithms, permission-aware serving, and reproducible reports. It combines classical information retrieval, transformer models, measured evaluation, and tested service boundaries.
+A permission-aware enterprise search backend, not just a chatbot, with explicit ranking algorithms and reproducible evaluation reports.
 
 **M1-M12 implemented:** BM25, dense retrieval, hybrid fusion, cross-encoder reranking, citation provenance, bounded claim verification, FastAPI, Docker, document authorization, request tracing, and CI configuration. Scientific source and results are frozen; this is a local engineering project, not a claim of production readiness.
 
 ## Architecture
 
-```text
-HTTP request -> request ID / validation -> trusted upstream identity
-             -> BM25 + dense retrieval -> document RRF top 50
-             -> authorization filter -> cross-encoder reranking
-             -> search response OR numbered evidence -> generator -> citation validation
-             -> structured request logs + bounded process-local metrics
+Lexical and semantic retrieval are fused; unauthorized evidence is filtered before model input. The service returns ranked search results or grounded answers.
+
+```mermaid
+flowchart TD
+    Client["Client / User"] --> API["FastAPI"]
+    API --> Trace["Request ID + validation"]
+    Trace --> Identity["Trusted upstream identity headers"]
+    Identity --> Retrieval["BM25 + dense retrieval"]
+    Retrieval --> Fusion["RRF: bounded top 50 candidates"]
+    Fusion --> ACL["Authorization filter"]
+    ACL --> Rank["Cross-encoder reranker"]
+    Rank -->|/search| Results["Ranked authorized results"]
+    Rank -->|/ask| Evidence["Up to 5 authorized evidence passages"]
+    Evidence --> Context["Numbered RAG context"]
+    Context --> Generator["Configured generator / Ollama"]
+    Generator --> Answer["Answer + citations"]
+    Answer --> Validation["Citation-reference validation"]
+    Trace -.-> Observe["Structured logs<br/>Bounded process-local metrics"]
 ```
 
-The API retains models/indexes once per process. The scientific CLI is a separate privileged path without tenant filtering. Details: [architecture](docs/ARCHITECTURE.md), [execution flow](docs/DATA_FLOW.md), and [code walkthrough](docs/CODE_WALKTHROUGH.md).
+Identity headers assume a trusted gateway; this service does not authenticate callers. Citation checks validate references, not entailment. The API retains models/indexes once per process; the scientific CLI is a separate privileged path without tenant filtering. Details: [architecture](docs/ARCHITECTURE.md), [execution flow](docs/DATA_FLOW.md), and [code walkthrough](docs/CODE_WALKTHROUGH.md).
 
 ## Measured retrieval results
 
