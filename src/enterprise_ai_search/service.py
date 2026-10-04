@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from enterprise_ai_search.authorization import AuthorizedIndex, PolicyStore, PrincipalContext, load_policy_store
 from enterprise_ai_search.generation import GenerationConfig, Generator, HttpGenerator
 from enterprise_ai_search.hybrid import HybridIndex
+from enterprise_ai_search.observability import ObservedGenerator, log_event
 from enterprise_ai_search.rag import GeneratedAnswer, ask
 from enterprise_ai_search.reranker import CANDIDATE_DEPTH, RerankedResult, rerank_candidates
 
@@ -61,7 +62,7 @@ class SearchService:
         if not self.retrieval_initialized or self.generator is None:
             raise RuntimeError("Answer generation unavailable")
         with self.lock:
-            return ask(question, self._authorized_index(principal), self.reranker, self.generator)
+            return ask(question, self._authorized_index(principal), self.reranker, ObservedGenerator(self.generator))
 
     def close(self) -> None:
         self.index = None
@@ -71,7 +72,7 @@ class SearchService:
 
 
 def load_service() -> SearchService:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     started = perf_counter()
     policy_store = None
     try:
@@ -80,12 +81,12 @@ def load_service() -> SearchService:
             raise ValueError("Missing policy configuration")
         policy_store = load_policy_store(Path(policy_path))
     except (OSError, ValueError) as error:
-        logger.error("Authorization initialization failed (%s)", type(error).__name__)
+        log_event(logger, "authorization_initialization_failed", level=logging.ERROR, error_type=type(error).__name__)
     generator = None
     try:
         generator = HttpGenerator(GenerationConfig.from_env())
     except ValueError:
-        logger.warning("Generation configuration unavailable; search remains enabled")
+        log_event(logger, "generation_configuration_unavailable", level=logging.WARNING)
 
     index, reranker = None, None
     try:
@@ -102,9 +103,10 @@ def load_service() -> SearchService:
         reranker, _ = load_reranker(Path("data/reranker/models"))
     except (OSError, ValueError, RuntimeError) as error:
         index, reranker = None, None
-        logger.error("Retrieval initialization failed (%s)", type(error).__name__)
+        log_event(logger, "retrieval_initialization_failed", level=logging.ERROR, error_type=type(error).__name__)
     service = SearchService(index, reranker, generator, perf_counter() - started, policy_store=policy_store)
-    logger.info("Service initialized in %.3f s; retrieval=%s; generation configured=%s; authorization=%s",
-                service.preparation_seconds, service.retrieval_initialized,
-                service.generation_configured, service.authorization_initialized)
+    log_event(logger, "service_prepared", preparation_seconds=service.preparation_seconds,
+              retrieval_initialized=service.retrieval_initialized,
+              generation_configured=service.generation_configured,
+              authorization_initialized=service.authorization_initialized)
     return service

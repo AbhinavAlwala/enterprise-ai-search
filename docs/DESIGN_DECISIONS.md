@@ -1,5 +1,17 @@
 # Design decisions
 
+## M11: bounded observation around unchanged behavior
+
+Observability helps explain system behavior; logs describe individual events, while metrics aggregate counts/durations. A UUIDv4 correlates request, response, and error records without deriving IDs from identity or content. Accept only one canonical lowercase RFC UUIDv4 (36 ASCII characters); otherwise replace it without rejecting the request. Caller IDs remain untrusted correlation metadata, may repeat, and must not contain secrets. They are neither authentication nor metric labels.
+
+Use Python logging, a pure ASGI boundary, one `ContextVar`, and one small metrics lock. JSON fields make request/lifecycle/error records machine-readable; no logging/tracing SDK is needed. Bounded route/method labels prevent raw URL/query values entering logs. Uvicorn's duplicate raw access log is suppressed. Error records include exception type, never exception message/stack locals. No identity hashing is needed because raw or encoded identities are not logged at all.
+
+Exact counters: total observed HTTP requests; POST search/ask attempts; identity rejections (M10 400/403); unexpected internal errors (uncaught errors plus search pipeline 500); detectable generation-call failures/invalid outputs. Configuration 503 and expected ask pipeline 502 are separate from unexpected errors. Partial document filtering is not counted as a denied request, and missing policy 503 remains availability, not an identity rejection. Route buckets are health/metrics/search/ask/other; status buckets are 1xx through 5xx plus other (including no response started). No request, tenant, principal, document, or query labels are created.
+
+Track request duration and fixed existing retrieval_reranking_seconds/generation_request_seconds/online_seconds aggregates with count, total, and mean. Successful stage samples come from existing timing fields; failed generator calls also contribute generation duration. Separate candidate generation, ACL filtering, and reranker durations are not exposed today and are not inferred. The observer delegates the generator without changing protocol/errors. Request duration includes ASGI handling/body sends and lock waits; stage timing excludes that wait. Use monotonic `perf_counter`, preserving benchmark timing and separating operational observations from frozen quality metrics.
+
+Metrics are copied under a lock, process-local, non-durable, reset with a new app/process, and independent across workers/replicas. The current `/metrics` poll is counted after its snapshot. One Docker worker avoids counter fragmentation; no external collector, persistence, histogram, percentiles, or alerting is added. `/metrics` is cheap and unauthenticated like health; aggregate usage/latency can still be sensitive and should stay behind the trusted service boundary. An error after response headers cannot be replaced by a new 500, so it propagates as a sanitized failure. Cancellation is not swallowed by catching BaseException.
+
 ## M10: explicit authorization at the service boundary
 
 Authentication establishes who a caller is; authorization determines what that identity may access. M10 assumes a trusted upstream gateway verifies and replaces identity headers. Without that gateway, any direct client can claim another tenant/principal/group. This milestone implements no authentication. Identity never enters query text or the generation prompt.

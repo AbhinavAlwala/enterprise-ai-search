@@ -1,5 +1,16 @@
 # Code walkthrough
 
+## Observability code (M11)
+
+- `observability.py`: `request_id` validates/generates UUIDs; `RequestTracingMiddleware` observes all HTTP paths and sanitizes errors; `current_trace` carries request correlation through handler threads. `log_event` uses Python logging with JSON fields, never caller payloads. `Metrics.record/snapshot` lock fixed counters and duration aggregates. `ObservedGenerator.generate` records call timing/failure and delegates without modifying messages, outputs, or exceptions.
+- `api.py`: owns one metrics instance, adds `GET /metrics`, attaches denial/error flags, and records existing successful stage timings. Lifespan emits safe readiness/preparation/shutdown events and suppresses raw Uvicorn access logs. HTTP bodies and M10 status semantics remain unchanged.
+- `service.py`: uses the generation observer around unchanged M6 `rag.ask`; initialization logs contain only booleans, duration, and exception types. It does not alter retrieval, authorization, or generation settings.
+- `tests/test_observability.py`: offline tests cover ID replacement/propagation, payload-safe correlated logs, counters/error distinctions, fixed snapshot shape, resets, concurrent updates/requests, and response-body duration. Existing authorization tests still inspect actual model inputs.
+
+Request observation adds no dependencies. Existing generation and scientific modules remain frozen; no real generation or expensive benchmark is needed to verify tracing. README shows request/response ID and metrics commands. Duration aggregates are totals/counts/means, not percentiles or quality metrics.
+
+Executed verification: locked offline sync, 431 offline tests (31 new observability cases), package build, and a real local health/metrics/search/403-denial smoke. The caller UUID appeared unchanged in the response and request log; counters changed as expected and no protected values appeared in the six request records. No real generator call was made. Preparation was 25.32 s; retrieval/reranking 0.409 s. The server was stopped afterward.
+
 ## Authorization code (M10)
 
 - `authorization.py`: `parse_principal` validates transport identity separately from access rules. `DocumentAccessPolicy` validates one tenant-owned ACL. `load_policy_store` rejects malformed/duplicate JSON and builds an immutable `PolicyStore`; `allows` checks tenant equality before tenant/principal/group grants. `AuthorizedIndex.search` filters the fixed hybrid top 50 and validates passage parent IDs before compacting ranks for frozen reranking.
@@ -25,7 +36,7 @@ The healthcheck uses installed Python's `urllib.request`, with a 3-second reques
 
 ## HTTP boundary (M8)
 
-- `api.py`: Pydantic request/response models, bounded text/top-k validation, sanitized HTTP errors, and `create_app(service_factory=load_service)`. Its lifespan prepares once and calls `close` at shutdown. Only the three business routes expose existing operations.
+- `api.py`: Pydantic request/response models, bounded text/top-k validation, sanitized HTTP errors, and `create_app(service_factory=load_service)`. Its lifespan prepares once and calls `close` at shutdown. M11 adds an operational metrics route alongside health/search/ask.
 - `service.py`: `load_service` composes existing loaders/indexes/cache/reranker without changing their settings. `SearchService.search` requests 50 hybrid candidates through the authorization adapter and reranks; `answer` calls unchanged `rag.ask` through the same adapter. Both require a principal and reuse a shared lock and the same initialized objects. Generation configuration is optional; logs use standard-library logging and omit payloads/secrets/identity.
 - `tests/test_api.py`: factory injection, tiny fake candidate/predictor/generator objects, lifecycle/resource reuse, request limits, ranking/source mapping, failed citations, missing configuration, and sanitized failure responses. A mocked default-loader test verifies preparation without models or corpus files.
 

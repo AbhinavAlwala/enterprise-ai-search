@@ -1,5 +1,14 @@
 # Current data flow
 
+## Request observation (M11)
+
+1. Before routing, middleware validates a single canonical lowercase UUIDv4 `X-Request-ID`; invalid/missing/duplicate IDs receive `uuid4()`. Duration starts with monotonic `perf_counter`, not a wall-clock timestamp.
+2. A request-local context carries only ID, bounded method/route, timing values, and failure flags into handler threads. Query/evidence/identity values never enter it. Existing M10 checks run unchanged; rejected identity (400/403) sets a denial flag, without naming documents.
+3. Search success contributes its existing combined retrieval/reranking time. Ask success contributes existing retrieval/reranking, generation-request, and online durations. A delegating generator observer also detects failed calls or invalid empty/non-string outputs. Failure flags do not change pipeline behavior.
+4. Middleware injects `X-Request-ID` in response headers, then records ASGI handling duration through response-body sending/application completion, including validation, serialization, and service-lock wait. This is not client network latency. Before headers, unexpected errors become the existing generic 500; after headers, a sanitized failure propagates without attempting a second response.
+5. One short metrics lock updates fixed counters/route-status buckets and duration sums/counts. JSON request/error logs include correlation and safe metadata, not exception messages or protected text. Context is reset after the request.
+6. `/metrics` copies a snapshot under the lock. Its current polling request joins counters after the snapshot is sent. Snapshot data is process-local and disappears on restart; no monitoring server, persistence, or worker aggregation is added.
+
 ## Permission checks (M10)
 
 1. Startup reads a strict JSON policy file into an immutable snapshot. Duplicate fields/IDs, unknown tenants, invalid identifiers or modes, and unexpected fields reject the whole file. There is no allow-all fallback.

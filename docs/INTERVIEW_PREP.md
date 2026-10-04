@@ -1,5 +1,23 @@
 # Interview preparation
 
+## M11 questions
+
+**Observability, logging, and metrics?** Observability helps explain behavior. Logs record one request/error/lifecycle event; metrics summarize rates/counts/durations across requests. Neither measures retrieval or answer correctness.
+
+**What does a request ID establish?** It correlates a response with safe request/error logs. Ours is a canonical UUIDv4, generated or accepted under strict syntax rules, never derived from a tenant or query. Caller IDs can repeat and do not authenticate anyone.
+
+**Why structured logs and no payloads?** JSON fields can be searched/parsed without interpreting prose. Queries, evidence, answers, identities, ACLs, and exception messages could leak protected data. We log bounded route/method/status, ID, durations, flags, and error type; raw Uvicorn URL access logs are suppressed.
+
+**What is metric cardinality?** The number of distinct label combinations. User/query/document/request labels grow without bounds and can expose sensitive values. We use five fixed route buckets and six status-family buckets, with no identity labels.
+
+**How do latency breakdowns differ?** Request duration includes validation, serialization/body handling, and lock wait. Existing retrieval/reranking and generation timings measure pipeline stages; preparation is separate. A monotonic clock measures elapsed time despite wall-clock changes. Operational means are not benchmark quality or latency percentiles.
+
+**How are concurrency and reset handled?** A ContextVar keeps request traces distinct across async tasks/handler threads. A short lock protects aggregate updates and snapshots. Metrics live in one app/process; restart resets them, and extra workers/replicas have independent counters.
+
+**What does an error count mean?** Identity-denial counts cover 400/403 rejections, not hidden documents. Unexpected errors include internal 500s; configuration 503 is availability. Generation failures require an actual failed/invalid generator call, not any ask failure. An uncited answer is a citation issue, not a generation transport failure.
+
+**What remains absent?** Durable storage, cross-process aggregation, percentiles, alerts, collectors, authentication, and general answer correctness. The metrics endpoint is cheap but unauthenticated and should stay inside the trusted boundary. Metrics polls count after their snapshots.
+
 ## M10 questions
 
 **Authentication versus authorization?** Authentication establishes identity; authorization checks permission. We assume an upstream gateway verifies and replaces `X-Tenant-ID`, `X-Principal-ID`, and optional `X-Groups`. The headers alone are spoofable and do not authenticate callers.

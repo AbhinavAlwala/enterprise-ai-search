@@ -2,7 +2,7 @@
 
 A retrieval engineering project built in tested milestones, with explicit algorithms, reproducible evaluation, and documented trade-offs.
 
-**Status: Milestone 10 adds document authorization and tenant isolation to the HTTP API.** CLI and HTTP access share BM25, exact dense search, document RRF, cross-encoder reranking, and a thin retrieval-augmented generation (RAG) layer with source-reference validation. Retrieval is evaluated on the same 300-query SciFact test split. API and generation tests run offline with fakes. A separate bounded SciFact stance evaluation adds explicit SUPPORT/CONTRADICT/ABSTAIN output and resumable reports. Frozen retrieval source and artifacts are preserved.
+**Status: Milestone 11 adds request tracing, structured logs, and bounded in-process metrics to the permission-aware HTTP API.** CLI and HTTP access share BM25, exact dense search, document RRF, cross-encoder reranking, and a thin retrieval-augmented generation (RAG) layer with source-reference validation. Retrieval is evaluated on the same 300-query SciFact test split. API and generation tests run offline with fakes. A separate bounded SciFact stance evaluation adds explicit SUPPORT/CONTRADICT/ABSTAIN output and resumable reports. Frozen retrieval source and artifacts are preserved.
 
 - Verified, revision-pinned [BEIR SciFact](https://github.com/beir-cellar/beir/wiki/Datasets-available) ingestion and deterministic overlapping chunks.
 - Explicit BM25 and revision-pinned `sentence-transformers/all-MiniLM-L6-v2` with cached 384-dimensional CPU embeddings.
@@ -101,6 +101,23 @@ The service removes denied documents from the existing hybrid top 50 before cros
 | tenant-b / bob / researchers | 6751418, 43122426 | 0.375 |
 
 The sets were disjoint. One real tenant-a `/ask` used only its three authorized documents and returned an insufficient-evidence answer; missing citations were visibly flagged. Generation took 34.10 s and online processing 34.33 s, with 32.45 s one-time preparation. These are deployment checks with synthetic permissions, not retrieval or answer-quality benchmarks. The verification server was stopped. The full offline suite passed 400 tests, including 73 authorization cases.
+
+## Request tracing and metrics (M11)
+
+Every HTTP response includes `X-Request-ID`. A single canonical lowercase UUIDv4 supplied by the caller is preserved; absent, duplicate, malformed, or oversized IDs are replaced with a new UUIDv4. Use opaque IDs, never sensitive data. JSON request/error logs correlate that ID with bounded method/route, status, duration, and available timings. Query/answer/evidence, identities, keys, ACLs, and exception messages are not logged. Raw Uvicorn access logs are suppressed to avoid untrusted URL leakage.
+
+```powershell
+$identity["X-Request-ID"] = "5996a386-cbd8-40bd-a8b8-2e86559fe286"
+$response = Invoke-WebRequest http://127.0.0.1:8000/search -Method Post -Headers $identity -ContentType "application/json" -Body '{"query":"Radioiodine treatment of non-toxic multinodular goitre reduces thyroid volume.","top_k":3}'
+$response.Headers["X-Request-ID"]
+Invoke-RestMethod http://127.0.0.1:8000/metrics
+```
+
+`GET /metrics` returns JSON counters for total/search/ask requests, identity denials, unexpected errors, and detectable generation failures. Fixed route/status buckets and `{count,total,mean}` request/stage duration summaries keep label cardinality bounded. Timings use `perf_counter`; existing search/RAG timing fields and scientific benchmark methodology are unchanged. Retrieval and reranking remain a combined stage. Snapshot polling excludes its own request until that response finishes.
+
+Counters are lock-protected, process-local, reset on restart, non-durable, and independent across workers/replicas. Health and metrics perform no inference. Metrics is an unauthenticated operational endpoint and should remain behind the same trusted service boundary. No monitoring containers or new dependencies are needed.
+
+The real M11 smoke preserved the supplied UUID on an authorized search and counted one subsequent 403 identity denial. Snapshots moved from 1 to 3 to 5 total requests (polls count after their snapshots), with 2 search attempts and 1 denial. All six request logs were correlated without query/identity/document/evidence leakage. Preparation took 25.32 s and retrieval/reranking 0.409 s; no real generation ran. All 431 offline tests passed, including 31 observability cases. The verification server was stopped. These are operational checks, not new scientific benchmarks.
 
 ## Docker deployment
 

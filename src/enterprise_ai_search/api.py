@@ -10,6 +10,9 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from enterprise_ai_search.authorization import PrincipalContext, parse_principal
+from enterprise_ai_search.observability import (
+    Metrics, RequestTracingMiddleware, log_event, log_request_error, mark_authorization_denied, record_timings,
+)
 from enterprise_ai_search.rag import CitationValidation, EvidenceItem
 from enterprise_ai_search.service import SearchService, load_service
 
@@ -63,36 +66,39 @@ class AskResponse(BaseModel):
 def create_app(service_factory: Callable[[], SearchService] = load_service) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        logging.basicConfig(level=logging.INFO, format="%(message)s")
+        # Raw access logs include untrusted URL paths/query strings; bounded request logs replace them.
+        logging.getLogger("uvicorn.access").disabled = True
+        log_event(logger, "initialization_started")
         started = perf_counter()
         try:
             service = service_factory()
         except (OSError, ValueError, RuntimeError) as error:
-            logger.error("Service initialization failed (%s)", type(error).__name__)
+            log_event(logger, "initialization_failed", level=logging.ERROR, error_type=type(error).__name__)
             service = SearchService(None, None, None, perf_counter() - started)
         app.state.service = service
+        ready = service.retrieval_initialized and service.authorization_initialized
+        log_event(logger, "initialization_succeeded" if ready else "initialization_unavailable",
+                  preparation_seconds=service.preparation_seconds,
+                  retrieval_initialized=service.retrieval_initialized,
+                  authorization_initialized=service.authorization_initialized,
+                  generation_configured=service.generation_configured)
         try:
             yield
         finally:
             service.close()
             app.state.service = None
-            logger.info("Service resources released")
+            log_event(logger, "shutdown_completed")
 
     app = FastAPI(title="Enterprise AI Search", version="0.1.0", lifespan=lifespan)
+    app.state.metrics = Metrics()
+    app.add_middleware(RequestTracingMiddleware, metrics=app.state.metrics)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request: Request, error: RequestValidationError) -> JSONResponse:
         # Default validation errors include submitted values, which may contain secrets.
         details = [{"loc": e["loc"], "msg": e["msg"], "type": e["type"]} for e in error.errors()]
         return JSONResponse(status_code=422, content={"detail": details})
-
-    @app.middleware("http")
-    async def unexpected_error(request: Request, call_next: Callable) -> Response:
-        try:
-            return await call_next(request)
-        except Exception as error:
-            # A final HTTP boundary avoids leaking exception details in server tracebacks.
-            logger.error("Unexpected request error (%s)", type(error).__name__)
-            return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
     def ready_service(request: Request) -> SearchService:
         service = request.app.state.service
@@ -104,15 +110,22 @@ def create_app(service_factory: Callable[[], SearchService] = load_service) -> F
         names = ("x-tenant-id", "x-principal-id", "x-groups")
         values = [request.headers.getlist(name) for name in names]
         if len(values[0]) != 1 or len(values[1]) != 1 or len(values[2]) > 1:
+            mark_authorization_denied()
             raise HTTPException(status_code=400, detail="Invalid request identity")
         try:
             principal = parse_principal(values[0][0], values[1][0], values[2][0] if values[2] else None)
         except ValueError:
+            mark_authorization_denied()
             raise HTTPException(status_code=400, detail="Invalid request identity") from None
         service = ready_service(request)
         if principal.tenant_id not in service.policy_store.tenants:
+            mark_authorization_denied()
             raise HTTPException(status_code=403, detail="Access denied")
         return service, principal
+
+    @app.get("/metrics")
+    async def metrics() -> dict[str, object]:
+        return app.state.metrics.snapshot()
 
     @app.get("/health", response_model=HealthResponse)
     async def health(request: Request, response: Response) -> HealthResponse:
@@ -133,7 +146,7 @@ def create_app(service_factory: Callable[[], SearchService] = load_service) -> F
         try:
             results, retrieval_seconds = service.search(body.query, body.top_k, principal)
         except (OSError, ValueError, RuntimeError) as error:
-            logger.error("Search request failed (%s)", type(error).__name__)
+            log_request_error(logger, error, unexpected=True)
             raise HTTPException(status_code=500, detail="Search request failed") from None
         hits = [
             SearchHit(rank=r.rank, document_id=r.document_id, chunk_id=r.passage.chunk_id,
@@ -141,7 +154,7 @@ def create_app(service_factory: Callable[[], SearchService] = load_service) -> F
             for r in results
         ]
         handler_seconds = perf_counter() - started
-        logger.info("Search completed in %.3f s; results=%d", handler_seconds, len(hits))
+        record_timings({"retrieval_reranking_seconds": retrieval_seconds})
         return SearchResponse(
             results=hits, timings={"retrieval_reranking_seconds": retrieval_seconds,
                                   "handler_seconds": handler_seconds},
@@ -156,11 +169,10 @@ def create_app(service_factory: Callable[[], SearchService] = load_service) -> F
         try:
             result = service.answer(body.question, principal)
         except (OSError, ValueError, RuntimeError) as error:
-            logger.error("Answer request failed (%s)", type(error).__name__)
+            log_request_error(logger, error, unexpected=False)
             raise HTTPException(status_code=502, detail="Answer request failed") from None
         timings = {**result.timings, "handler_seconds": perf_counter() - started}
-        logger.info("Answer completed in %.3f s; citation validation=%s",
-                    timings["handler_seconds"], result.citation_validation.passed)
+        record_timings(result.timings)
         return AskResponse(answer=result.answer, evidence=list(result.evidence),
                            citation_validation=result.citation_validation, timings=timings)
 

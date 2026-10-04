@@ -1,5 +1,13 @@
 # Current architecture
 
+## Observability boundary (M11)
+
+One pure ASGI `RequestTracingMiddleware` surrounds HTTP routing/validation/body handling. It selects an opaque UUIDv4, injects the response header, and stores one `RequestTrace` in a `ContextVar`, propagated to synchronous handler threads. Each request updates the app's lock-protected `Metrics` instance and emits a JSON completion record. Generic internal errors emit a correlated record with exception type only. Lifespan logs initialization/status/preparation/shutdown events.
+
+`/metrics` exposes fixed health/metrics/search/ask/other buckets, status families, counters, and duration summaries, without inference or identity labels. `ObservedGenerator` delegates unchanged messages/results/exceptions and observes only the generation call, including detectable failures. API success logs/aggregates reuse existing stage timings. Authorization, context, prompts, and scientific source are untouched.
+
+Raw Uvicorn access logging is disabled because URLs can carry sensitive values; bounded structured request logs replace it. Existing library logs are not converted into a new logging framework. Metrics live in one process/app instance, reset on restart, and are not durable or aggregated across workers. Docker keeps one worker and requires no extra services; health remains unchanged and cheap.
+
 ## Authorization boundary (M10)
 
 `authorization.py` contains immutable `PrincipalContext`, `DocumentAccessPolicy`, and `PolicyStore` records, separate header parsing, and an `AuthorizedIndex` adapter. `service.load_service` loads one policy snapshot from required `AUTHORIZATION_POLICY_PATH`. A missing/invalid file leaves authorization unavailable; protected routes and health return 503. No policy framework or dependency was added.
